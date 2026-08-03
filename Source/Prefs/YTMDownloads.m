@@ -1,4 +1,5 @@
 #import "YTMDownloads.h"
+#import "../Player/YTMOfflinePlayerViewController.h"
 
 @implementation YTMDownloads
 
@@ -114,7 +115,7 @@
     }
 
     if (section == 1) {
-        return 2;
+        return 4;
     }
 
     return 0;
@@ -151,6 +152,8 @@
     else if (indexPath.section == 1) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cell0"];
         NSArray *settingsData = @[
+            @{@"title": @"Play All", @"icon": @"play.fill"},
+            @{@"title": @"Shuffle All", @"icon": @"shuffle"},
             @{@"title": LOC(@"SHARE_ALL"), @"icon": @"square.and.arrow.up.on.square"},
             @{@"title": LOC(@"REMOVE_ALL"), @"icon": @"trash"},
         ];
@@ -161,7 +164,7 @@
         cell.textLabel.textColor = [UIColor whiteColor];
         cell.textLabel.adjustsFontSizeToFitWidth = YES;
         cell.imageView.image = [UIImage systemImageNamed:data[@"icon"]];
-        cell.imageView.tintColor = indexPath.row == 1 ? [UIColor redColor] : [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
+        cell.imageView.tintColor = (indexPath.row == 3) ? [UIColor redColor] : [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
         cell.backgroundColor = [[UIColor grayColor] colorWithAlphaComponent:0.25];
     }
 
@@ -280,66 +283,37 @@
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    // Playing song can conflict with YTMusicPlayer
-    if (indexPath.section == 0) {
-        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-        NSURL *audioURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", self.audioFiles[indexPath.row]]];
-        NSString *imageName = [NSString stringWithFormat:@"%@.png", [self.audioFiles[indexPath.row] stringByDeletingPathExtension]];
-        NSString *documentsDirectory = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
-
-        NSString *authorTitleString = [self.audioFiles[indexPath.row] stringByDeletingPathExtension];
-        // NSArray *components = [authorTitleString componentsSeparatedByString:@" - "];
-
-        AVAudioSession *audioSession = [AVAudioSession sharedInstance];
-
-        NSError *setCategoryError = nil;
-        BOOL success = [audioSession setCategory:AVAudioSessionCategoryPlayback error:&setCategoryError];
-
-        if (!success) {
-            NSLog(@"Error setting AVAudioSession category: %@", setCategoryError.localizedDescription);
-        }
-
-        NSError *activationError = nil;
-        success = [audioSession setActive:YES error:&activationError];
-
-        if (!success) {
-            NSLog(@"Error activating AVAudioSession: %@", activationError.localizedDescription);
-        }
-
-        AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:audioURL];
-        AVMutableMetadataItem *titleMetadataItem = [AVMutableMetadataItem metadataItem];
-        titleMetadataItem.key = AVMetadataCommonKeyTitle;
-        titleMetadataItem.keySpace = AVMetadataKeySpaceCommon;
-        titleMetadataItem.value = authorTitleString;
-
-        // AVMutableMetadataItem *authorMetadataItem = [AVMutableMetadataItem metadataItem];
-        // authorMetadataItem.key = AVMetadataCommonKeyAlbumName; // It doesn't works
-        // authorMetadataItem.keySpace = AVMetadataKeySpaceCommon;
-        // authorMetadataItem.value = components[0];
-
-        AVMutableMetadataItem *artworkMetadataItem = [AVMutableMetadataItem metadataItem];
-        artworkMetadataItem.key = AVMetadataCommonKeyArtwork;
-        artworkMetadataItem.keySpace = AVMetadataKeySpaceCommon;
-        UIImage *artworkImage = [UIImage imageWithContentsOfFile:[[documentsDirectory stringByAppendingPathComponent:@"YTMusicUltimate"] stringByAppendingPathComponent:imageName]];
-        artworkMetadataItem.value = UIImagePNGRepresentation(artworkImage);
-
-        playerItem.externalMetadata = @[titleMetadataItem, artworkMetadataItem];
-
-        AVPlayerViewController *playerViewController = [[AVPlayerViewController alloc] init];
-        AVPlayer *player = [AVPlayer playerWithPlayerItem:playerItem];
-        playerViewController.player = player;
-
-        [self presentViewController:playerViewController animated:YES completion:^{
-            [player play];
-        }];
+    if (indexPath.section == 0 && indexPath.row < self.audioFiles.count) {
+        YTMOfflinePlayerViewController *playerVC = [YTMOfflinePlayerViewController sharedPlayerViewController];
+        playerVC.isShuffle = NO;
+        [playerVC playPlaylist:self.audioFiles initialIndex:indexPath.row];
+        [self presentViewController:playerVC animated:YES completion:nil];
     }
 
     if (indexPath.section == 1) {
         if (indexPath.row == 0) {
+            // Play All
+            if (self.audioFiles.count > 0) {
+                YTMOfflinePlayerViewController *playerVC = [YTMOfflinePlayerViewController sharedPlayerViewController];
+                playerVC.isShuffle = NO;
+                [playerVC playPlaylist:self.audioFiles initialIndex:0];
+                [self presentViewController:playerVC animated:YES completion:nil];
+            }
+        }
+        else if (indexPath.row == 1) {
+            // Shuffle All
+            if (self.audioFiles.count > 0) {
+                YTMOfflinePlayerViewController *playerVC = [YTMOfflinePlayerViewController sharedPlayerViewController];
+                playerVC.isShuffle = YES;
+                NSInteger randomIndex = arc4random_uniform((uint32_t)self.audioFiles.count);
+                [playerVC playPlaylist:self.audioFiles initialIndex:randomIndex];
+                [self presentViewController:playerVC animated:YES completion:nil];
+            }
+        }
+        else if (indexPath.row == 2) {
             [self shareAll:indexPath];
         }
-
-        if (indexPath.row == 1) {
+        else if (indexPath.row == 3) {
             [self removeAll];
         }
     }
