@@ -1,4 +1,5 @@
 #import "YTMDownloads.h"
+#import "../Player/YTMOfflinePlayerManager.h"
 #import "../Player/YTMOfflinePlayerViewController.h"
 
 @implementation YTMDownloads
@@ -13,17 +14,35 @@
     self.tableView.backgroundColor = [UIColor colorWithRed:3/255.0 green:3/255.0 blue:3/255.0 alpha:1.0];
     [self.view addSubview:self.tableView];
 
+    self.miniPlayerView = [[YTMOfflineMiniPlayerView alloc] initWithFrame:CGRectZero];
+    self.miniPlayerView.translatesAutoresizingMaskIntoConstraints = NO;
+    __weak typeof(self) weakSelf = self;
+    self.miniPlayerView.onTapExpandBlock = ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
+        playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
+        [strongSelf presentViewController:playerVC animated:YES completion:nil];
+    };
+    [self.view addSubview:self.miniPlayerView];
+
     [NSLayoutConstraint activateConstraints:@[
-        [self.tableView.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [self.tableView.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
-        [self.tableView.widthAnchor constraintEqualToAnchor:self.view.widthAnchor],
-        [self.tableView.heightAnchor constraintEqualToAnchor:self.view.heightAnchor]
+        [self.tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.miniPlayerView.topAnchor],
+
+        [self.miniPlayerView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+        [self.miniPlayerView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.miniPlayerView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
+        [self.miniPlayerView.heightAnchor constraintEqualToConstant:64]
     ]];
 
     [self maybeShowEmptyState];
     [self refreshAudioFiles];
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadData) name:@"ReloadDataNotification" object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onTrackChanged) name:YTMOfflinePlayerTrackDidChangeNotification object:nil];
 }
 
 - (void)maybeShowEmptyState {
@@ -65,6 +84,12 @@
 - (void)reloadData {
     [self refreshAudioFiles];
     [self.tableView reloadData];
+}
+
+- (void)onTrackChanged {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.tableView reloadData];
+    });
 }
 
 - (void)refreshAudioFiles {
@@ -115,7 +140,7 @@
     }
 
     if (section == 1) {
-        return 4;
+        return 2;
     }
 
     return 0;
@@ -128,12 +153,24 @@
     }
 
     if (indexPath.section == 0 && indexPath.row < self.audioFiles.count) {
-        cell.textLabel.text = [self.audioFiles[indexPath.row] stringByDeletingPathExtension];
+        NSString *fileName = self.audioFiles[indexPath.row];
+        cell.textLabel.text = [fileName stringByDeletingPathExtension];
         cell.textLabel.numberOfLines = 0;
-        cell.textLabel.textColor = [UIColor whiteColor];
+
+        BOOL isCurrentPlaying = [fileName isEqualToString:[YTMOfflinePlayerManager sharedManager].currentFileName];
+        if (isCurrentPlaying) {
+            cell.textLabel.textColor = [UIColor colorWithRed:255/255.0 green:80/255.0 blue:80/255.0 alpha:1.0];
+            UIImageView *playingIconView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"waveform"]];
+            playingIconView.tintColor = [UIColor redColor];
+            cell.accessoryView = playingIconView;
+        } else {
+            cell.textLabel.textColor = [UIColor whiteColor];
+            cell.accessoryView = nil;
+        }
+
         cell.backgroundColor = [[UIColor grayColor] colorWithAlphaComponent:0.25];
 
-        NSString *imageName = [NSString stringWithFormat:@"%@.png", [self.audioFiles[indexPath.row] stringByDeletingPathExtension]];
+        NSString *imageName = [NSString stringWithFormat:@"%@.png", [fileName stringByDeletingPathExtension]];
         NSString *documentsDirectory = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
 
         UIImage *image = [UIImage imageWithContentsOfFile:[[documentsDirectory stringByAppendingPathComponent:@"YTMusicUltimate"] stringByAppendingPathComponent:imageName]];
@@ -152,8 +189,6 @@
     else if (indexPath.section == 1) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cell0"];
         NSArray *settingsData = @[
-            @{@"title": @"Play All", @"icon": @"play.fill"},
-            @{@"title": @"Shuffle All", @"icon": @"shuffle"},
             @{@"title": LOC(@"SHARE_ALL"), @"icon": @"square.and.arrow.up.on.square"},
             @{@"title": LOC(@"REMOVE_ALL"), @"icon": @"trash"},
         ];
@@ -164,8 +199,9 @@
         cell.textLabel.textColor = [UIColor whiteColor];
         cell.textLabel.adjustsFontSizeToFitWidth = YES;
         cell.imageView.image = [UIImage systemImageNamed:data[@"icon"]];
-        cell.imageView.tintColor = (indexPath.row == 3) ? [UIColor redColor] : [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
+        cell.imageView.tintColor = indexPath.row == 1 ? [UIColor redColor] : [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
         cell.backgroundColor = [[UIColor grayColor] colorWithAlphaComponent:0.25];
+        cell.accessoryView = nil;
     }
 
     return cell;
@@ -240,6 +276,7 @@
         if (!error) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self reloadData];
+                [[YTMOfflinePlayerManager sharedManager] updatePlaylist:self.audioFiles];
                 [[NSClassFromString(@"YTMToastController") alloc] showMessage:LOC(@"DONE")];
             });
         }
@@ -267,6 +304,7 @@
         if (audioRemoved && coverRemoved) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self.audioFiles removeObjectAtIndex:indexPath.row];
+                [[YTMOfflinePlayerManager sharedManager] updatePlaylist:self.audioFiles];
                 [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
                 [self maybeShowEmptyState];
             });
@@ -283,37 +321,21 @@
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0 && indexPath.row < self.audioFiles.count) {
-        YTMOfflinePlayerViewController *playerVC = [YTMOfflinePlayerViewController sharedPlayerViewController];
-        playerVC.isShuffle = NO;
-        [playerVC playPlaylist:self.audioFiles initialIndex:indexPath.row];
+    if (indexPath.section == 0) {
+        [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
+        [self.miniPlayerView updateState];
+
+        YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
+        playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
         [self presentViewController:playerVC animated:YES completion:nil];
     }
 
     if (indexPath.section == 1) {
         if (indexPath.row == 0) {
-            // Play All
-            if (self.audioFiles.count > 0) {
-                YTMOfflinePlayerViewController *playerVC = [YTMOfflinePlayerViewController sharedPlayerViewController];
-                playerVC.isShuffle = NO;
-                [playerVC playPlaylist:self.audioFiles initialIndex:0];
-                [self presentViewController:playerVC animated:YES completion:nil];
-            }
-        }
-        else if (indexPath.row == 1) {
-            // Shuffle All
-            if (self.audioFiles.count > 0) {
-                YTMOfflinePlayerViewController *playerVC = [YTMOfflinePlayerViewController sharedPlayerViewController];
-                playerVC.isShuffle = YES;
-                NSInteger randomIndex = arc4random_uniform((uint32_t)self.audioFiles.count);
-                [playerVC playPlaylist:self.audioFiles initialIndex:randomIndex];
-                [self presentViewController:playerVC animated:YES completion:nil];
-            }
-        }
-        else if (indexPath.row == 2) {
             [self shareAll:indexPath];
         }
-        else if (indexPath.row == 3) {
+
+        if (indexPath.row == 1) {
             [self removeAll];
         }
     }
@@ -345,6 +367,7 @@
 
         if (audiosRemoved) {
             [self.audioFiles removeAllObjects];
+            [[YTMOfflinePlayerManager sharedManager] updatePlaylist:self.audioFiles];
             self.imageView.tintColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
             self.label.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
             dispatch_async(dispatch_get_main_queue(), ^{
