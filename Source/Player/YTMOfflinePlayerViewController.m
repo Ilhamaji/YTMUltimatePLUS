@@ -26,7 +26,6 @@
 @property (nonatomic, strong) UIButton *playPauseButton;
 @property (nonatomic, strong) UIButton *nextButton;
 @property (nonatomic, strong) UIButton *repeatButton;
-@property (nonatomic, strong) UIButton *queueButton;
 
 @end
 
@@ -44,7 +43,7 @@
 - (instancetype)initWithPlaylist:(NSArray<NSString *> *)playlist initialIndex:(NSInteger)index {
     self = [super init];
     if (self) {
-        _playlist = [playlist copy];
+        _playlist = playlist ? [playlist copy] : @[];
         _currentIndex = index;
         _repeatMode = YTMPlayerRepeatModeAll;
         _isShuffle = NO;
@@ -58,13 +57,18 @@
 
     self.view.backgroundColor = [UIColor colorWithRed:12.0/255.0 green:12.0/255.0 blue:12.0/255.0 alpha:1.0];
 
+    [self setupUI];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
     [self setupAudioSession];
     [self setupRemoteCommandCenter];
-    [self setupUI];
+}
 
-    if (self.playlist.count > 0) {
-        [self loadTrackAtIndex:self.currentIndex autoPlay:YES];
-    }
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self removeRemoteCommandCenter];
 }
 
 - (void)dealloc {
@@ -73,70 +77,85 @@
         [self.player removeTimeObserver:self.timeObserver];
         self.timeObserver = nil;
     }
+    [self removeRemoteCommandCenter];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 #pragma mark - Audio Session & Remote Commands
 
 - (void)setupAudioSession {
-    AVAudioSession *audioSession = [AVAudioSession sharedInstance];
-    NSError *error = nil;
-    [audioSession setCategory:AVAudioSessionCategoryPlayback error:&error];
-    if (error) {
-        NSLog(@"[YTMOfflinePlayer] Error setting AVAudioSession category: %@", error);
-    }
-    [audioSession setActive:YES error:&error];
-    if (error) {
-        NSLog(@"[YTMOfflinePlayer] Error activating AVAudioSession: %@", error);
+    @try {
+        AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+        NSError *error = nil;
+        [audioSession setCategory:AVAudioSessionCategoryPlayback error:&error];
+        [audioSession setActive:YES error:&error];
+    } @catch (NSException *exception) {
+        NSLog(@"[YTMOfflinePlayer] Exception setting up AVAudioSession: %@", exception);
     }
 }
 
 - (void)setupRemoteCommandCenter {
     MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
 
-    [commandCenter.playCommand removeTarget:nil];
-    [commandCenter.playCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
-        [self play];
-        return MPRemoteCommandHandlerStatusSuccess;
-    }];
+    [commandCenter.playCommand addTarget:self action:@selector(handlePlayCommand:)];
+    [commandCenter.pauseCommand addTarget:self action:@selector(handlePauseCommand:)];
+    [commandCenter.togglePlayPauseCommand addTarget:self action:@selector(handleTogglePlayPauseCommand:)];
+    [commandCenter.nextTrackCommand addTarget:self action:@selector(handleNextTrackCommand:)];
+    [commandCenter.previousTrackCommand addTarget:self action:@selector(handlePreviousTrackCommand:)];
+    [commandCenter.changePlaybackPositionCommand addTarget:self action:@selector(handleChangePositionCommand:)];
+}
 
-    [commandCenter.pauseCommand removeTarget:nil];
-    [commandCenter.pauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
-        [self pause];
-        return MPRemoteCommandHandlerStatusSuccess;
-    }];
+- (void)removeRemoteCommandCenter {
+    MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
 
-    [commandCenter.togglePlayPauseCommand removeTarget:nil];
-    [commandCenter.togglePlayPauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
-        [self togglePlayPause];
-        return MPRemoteCommandHandlerStatusSuccess;
-    }];
+    [commandCenter.playCommand removeTarget:self];
+    [commandCenter.pauseCommand removeTarget:self];
+    [commandCenter.togglePlayPauseCommand removeTarget:self];
+    [commandCenter.nextTrackCommand removeTarget:self];
+    [commandCenter.previousTrackCommand removeTarget:self];
+    [commandCenter.changePlaybackPositionCommand removeTarget:self];
+}
 
-    [commandCenter.nextTrackCommand removeTarget:nil];
-    [commandCenter.nextTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
-        [self playNextTrack];
-        return MPRemoteCommandHandlerStatusSuccess;
-    }];
+- (MPRemoteCommandHandlerStatus)handlePlayCommand:(MPRemoteCommandEvent *)event {
+    [self play];
+    return MPRemoteCommandHandlerStatusSuccess;
+}
 
-    [commandCenter.previousTrackCommand removeTarget:nil];
-    [commandCenter.previousTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
-        [self playPreviousTrack];
-        return MPRemoteCommandHandlerStatusSuccess;
-    }];
+- (MPRemoteCommandHandlerStatus)handlePauseCommand:(MPRemoteCommandEvent *)event {
+    [self pause];
+    return MPRemoteCommandHandlerStatusSuccess;
+}
 
-    [commandCenter.changePlaybackPositionCommand removeTarget:nil];
-    [commandCenter.changePlaybackPositionCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+- (MPRemoteCommandHandlerStatus)handleTogglePlayPauseCommand:(MPRemoteCommandEvent *)event {
+    [self togglePlayPause];
+    return MPRemoteCommandHandlerStatusSuccess;
+}
+
+- (MPRemoteCommandHandlerStatus)handleNextTrackCommand:(MPRemoteCommandEvent *)event {
+    [self playNextTrack];
+    return MPRemoteCommandHandlerStatusSuccess;
+}
+
+- (MPRemoteCommandHandlerStatus)handlePreviousTrackCommand:(MPRemoteCommandEvent *)event {
+    [self playPreviousTrack];
+    return MPRemoteCommandHandlerStatusSuccess;
+}
+
+- (MPRemoteCommandHandlerStatus)handleChangePositionCommand:(MPRemoteCommandEvent *)event {
+    if ([event isKindOfClass:[MPChangePlaybackPositionCommandEvent class]]) {
         MPChangePlaybackPositionCommandEvent *positionEvent = (MPChangePlaybackPositionCommandEvent *)event;
         [self seekToTimeSeconds:positionEvent.positionTime];
-        return MPRemoteCommandHandlerStatusSuccess;
-    }];
+    }
+    return MPRemoteCommandHandlerStatusSuccess;
 }
 
 #pragma mark - Public API
 
 - (void)playPlaylist:(NSArray<NSString *> *)playlist initialIndex:(NSInteger)index {
-    self.playlist = playlist;
-    self.currentIndex = index;
+    if (!playlist || playlist.count == 0) return;
+
+    self.playlist = [playlist copy];
+    self.currentIndex = (index >= 0 && index < self.playlist.count) ? index : 0;
     if (self.isShuffle) {
         [self generateShuffledIndices];
     }
@@ -146,9 +165,8 @@
 #pragma mark - Playback Control Engine
 
 - (void)loadTrackAtIndex:(NSInteger)index autoPlay:(BOOL)autoPlay {
-    if (index < 0 || index >= self.playlist.count) {
-        return;
-    }
+    if (!self.playlist || self.playlist.count == 0) return;
+    if (index < 0 || index >= self.playlist.count) return;
 
     self.currentIndex = index;
     NSString *fileName = self.playlist[index];
@@ -156,7 +174,11 @@
     NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
     NSURL *audioURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", fileName]];
 
-    // Clean up previous item observer
+    if (![[NSFileManager defaultManager] fileExistsAtPath:audioURL.path]) {
+        NSLog(@"[YTMOfflinePlayer] Audio file does not exist at path: %@", audioURL.path);
+        return;
+    }
+
     [self removeCurrentItemObserver];
 
     AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:audioURL];
@@ -168,13 +190,11 @@
         [self.player replaceCurrentItemWithPlayerItem:playerItem];
     }
 
-    // Register completion listener for auto-advance!
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(playerItemDidReachEnd:)
                                                  name:AVPlayerItemDidPlayToEndTimeNotification
                                                object:playerItem];
 
-    // Parse Title & Artist from filename ("Artist - Title.ext" or fallback)
     NSString *baseName = [fileName stringByDeletingPathExtension];
     NSString *songTitle = baseName;
     NSString *artistName = @"Offline Music";
@@ -188,7 +208,6 @@
     self.titleLabel.text = songTitle;
     self.artistLabel.text = artistName;
 
-    // Load Artwork Image
     NSString *imageName = [NSString stringWithFormat:@"%@.png", baseName];
     NSString *documentsDirectory = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
     NSString *artworkPath = [[documentsDirectory stringByAppendingPathComponent:@"YTMusicUltimate"] stringByAppendingPathComponent:imageName];
@@ -200,7 +219,6 @@
         self.artworkImageView.image = [UIImage systemImageNamed:@"music.note.list"];
     }
 
-    // Reset scrubber
     self.progressSlider.value = 0.0;
     self.currentTimeLabel.text = @"0:00";
     self.durationLabel.text = @"0:00";
@@ -215,7 +233,7 @@
 }
 
 - (void)removeCurrentItemObserver {
-    if (self.player.currentItem) {
+    if (self.player && self.player.currentItem) {
         [[NSNotificationCenter defaultCenter] removeObserver:self
                                                         name:AVPlayerItemDidPlayToEndTimeNotification
                                                       object:self.player.currentItem];
@@ -234,34 +252,41 @@
 }
 
 - (void)play {
-    [self.player play];
-    [self updatePlayPauseButtonImage];
-    [self updateNowPlayingInfo];
+    if (self.player) {
+        [self.player play];
+        [self updatePlayPauseButtonImage];
+        [self updateNowPlayingInfo];
+    }
 }
 
 - (void)pause {
-    [self.player pause];
-    [self updatePlayPauseButtonImage];
-    [self updateNowPlayingInfo];
+    if (self.player) {
+        [self.player pause];
+        [self updatePlayPauseButtonImage];
+        [self updateNowPlayingInfo];
+    }
 }
 
 - (void)togglePlayPause {
-    if (self.player.timeControlStatus == AVPlayerTimeControlStatusPlaying) {
-        [self pause];
-    } else {
-        [self play];
+    if (self.player) {
+        if (self.player.timeControlStatus == AVPlayerTimeControlStatusPlaying) {
+            [self pause];
+        } else {
+            [self play];
+        }
     }
 }
 
 - (void)playNextTrack {
-    if (self.playlist.count == 0) return;
+    if (!self.playlist || self.playlist.count == 0) return;
 
     NSInteger nextIndex = 0;
 
     if (self.isShuffle) {
-        if (self.shuffledIndices.count != self.playlist.count) {
+        if (!self.shuffledIndices || self.shuffledIndices.count != self.playlist.count) {
             [self generateShuffledIndices];
         }
+        if (self.shuffledIndices.count == 0) return;
         self.currentShufflePosition++;
         if (self.currentShufflePosition >= self.shuffledIndices.count) {
             if (self.repeatMode == YTMPlayerRepeatModeAll) {
@@ -288,22 +313,24 @@
 }
 
 - (void)playPreviousTrack {
-    if (self.playlist.count == 0) return;
+    if (!self.playlist || self.playlist.count == 0) return;
 
-    // If played more than 3 seconds, restart current track
-    CMTime currentTime = self.player.currentTime;
-    Float64 seconds = CMTimeGetSeconds(currentTime);
-    if (seconds > 3.0) {
-        [self seekToTimeSeconds:0];
-        return;
+    if (self.player) {
+        CMTime currentTime = self.player.currentTime;
+        Float64 seconds = CMTimeGetSeconds(currentTime);
+        if (!isnan(seconds) && seconds > 3.0) {
+            [self seekToTimeSeconds:0];
+            return;
+        }
     }
 
     NSInteger prevIndex = 0;
 
     if (self.isShuffle) {
-        if (self.shuffledIndices.count != self.playlist.count) {
+        if (!self.shuffledIndices || self.shuffledIndices.count != self.playlist.count) {
             [self generateShuffledIndices];
         }
+        if (self.shuffledIndices.count == 0) return;
         self.currentShufflePosition--;
         if (self.currentShufflePosition < 0) {
             self.currentShufflePosition = self.shuffledIndices.count - 1;
@@ -339,19 +366,26 @@
 }
 
 - (void)generateShuffledIndices {
+    if (!self.playlist || self.playlist.count == 0) {
+        self.shuffledIndices = [NSMutableArray array];
+        self.currentShufflePosition = 0;
+        return;
+    }
+
     NSMutableArray *indices = [NSMutableArray array];
     for (NSInteger i = 0; i < self.playlist.count; i++) {
         [indices addObject:@(i)];
     }
 
-    // Fisher-Yates shuffle
     for (NSUInteger i = indices.count; i > 1; i--) {
-        [indices exchangeObjectAtIndex:(i - 1) withObjectAtIndex:arc4random_uniform((uint32_t)i)];
+        uint32_t bound = (uint32_t)i;
+        if (bound > 0) {
+            [indices exchangeObjectAtIndex:(i - 1) withObjectAtIndex:arc4random_uniform(bound)];
+        }
     }
 
     self.shuffledIndices = indices;
 
-    // Align currentShufflePosition with currentIndex
     NSUInteger pos = [indices indexOfObject:@(self.currentIndex)];
     self.currentShufflePosition = (pos != NSNotFound) ? pos : 0;
 }
@@ -359,6 +393,8 @@
 #pragma mark - Scrubber & Time Observers
 
 - (void)setupTimeObserver {
+    if (!self.player) return;
+
     __weak typeof(self) weakSelf = self;
     CMTime interval = CMTimeMakeWithSeconds(0.5, NSEC_PER_SEC);
 
@@ -390,6 +426,7 @@
 }
 
 - (void)seekToTimeSeconds:(Float64)seconds {
+    if (!self.player) return;
     CMTime targetTime = CMTimeMakeWithSeconds(seconds, NSEC_PER_SEC);
     [self.player seekToTime:targetTime completionHandler:^(BOOL finished) {
         [self updateNowPlayingInfo];
@@ -423,8 +460,8 @@
 - (void)updateNowPlayingInfo {
     NSMutableDictionary *nowPlayingInfo = [NSMutableDictionary dictionary];
 
-    AVPlayerItem *currentItem = self.player.currentItem;
-    if (currentItem) {
+    if (self.player && self.player.currentItem) {
+        AVPlayerItem *currentItem = self.player.currentItem;
         Float64 duration = CMTimeGetSeconds(currentItem.duration);
         Float64 elapsed = CMTimeGetSeconds(self.player.currentTime);
 
@@ -436,16 +473,19 @@
         }
     }
 
-    nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = @(self.player.rate);
+    nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = @(self.player ? self.player.rate : 0.0);
     nowPlayingInfo[MPMediaItemPropertyTitle] = self.titleLabel.text ?: @"Offline Song";
     nowPlayingInfo[MPMediaItemPropertyArtist] = self.artistLabel.text ?: @"YTMusicUltimate";
 
     if (self.artworkImageView.image) {
-        MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:self.artworkImageView.image.size
-                                                                        requestHandler:^UIImage * _Nonnull(CGSize size) {
-            return self.artworkImageView.image;
-        }];
-        nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork;
+        UIImage *img = self.artworkImageView.image;
+        if (img.size.width > 0 && img.size.height > 0) {
+            MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:img.size
+                                                                            requestHandler:^UIImage * _Nonnull(CGSize size) {
+                return img;
+            }];
+            nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork;
+        }
     }
 
     [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nowPlayingInfo;
@@ -454,14 +494,12 @@
 #pragma mark - UI Setup
 
 - (void)setupUI {
-    // Background View
     UIBlurEffect *blurEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleDark];
     self.backgroundBlurView = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
     self.backgroundBlurView.frame = self.view.bounds;
     self.backgroundBlurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:self.backgroundBlurView];
 
-    // Dismiss Chevron Button
     self.dismissButton = [UIButton buttonWithType:UIButtonTypeSystem];
     UIImage *chevronImg = [UIImage systemImageNamed:@"chevron.down"];
     [self.dismissButton setImage:chevronImg forState:UIControlStateNormal];
@@ -470,7 +508,6 @@
     [self.dismissButton addTarget:self action:@selector(dismissPlayer) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:self.dismissButton];
 
-    // Header Title
     self.headerTitleLabel = [[UILabel alloc] init];
     self.headerTitleLabel.text = @"PLAYING FROM DOWNLOADS";
     self.headerTitleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
@@ -479,7 +516,6 @@
     self.headerTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.headerTitleLabel];
 
-    // Artwork Container with Shadow
     self.artworkShadowView = [[UIView alloc] init];
     self.artworkShadowView.backgroundColor = [UIColor clearColor];
     self.artworkShadowView.layer.shadowColor = [UIColor blackColor].CGColor;
@@ -498,7 +534,6 @@
     self.artworkImageView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.artworkShadowView addSubview:self.artworkImageView];
 
-    // Song Title Label
     self.titleLabel = [[UILabel alloc] init];
     self.titleLabel.font = [UIFont systemFontOfSize:22 weight:UIFontWeightBold];
     self.titleLabel.textColor = [UIColor whiteColor];
@@ -509,7 +544,6 @@
     self.titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.titleLabel];
 
-    // Artist Name Label
     self.artistLabel = [[UILabel alloc] init];
     self.artistLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
     self.artistLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.7];
@@ -518,19 +552,20 @@
     self.artistLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.artistLabel];
 
-    // Progress Slider
     self.progressSlider = [[UISlider alloc] init];
     self.progressSlider.minimumTrackTintColor = [UIColor redColor];
     self.progressSlider.maximumTrackTintColor = [UIColor colorWithWhite:1.0 alpha:0.25];
     self.progressSlider.thumbTintColor = [UIColor redColor];
-    [self.progressSlider setThumbImage:[self createThumbImageWithSize:CGSizeMake(12, 12) color:[UIColor redColor]] forState:UIControlStateNormal];
+    UIImage *thumbImg = [self createThumbImageWithSize:CGSizeMake(12, 12) color:[UIColor redColor]];
+    if (thumbImg) {
+        [self.progressSlider setThumbImage:thumbImg forState:UIControlStateNormal];
+    }
     self.progressSlider.translatesAutoresizingMaskIntoConstraints = NO;
     [self.progressSlider addTarget:self action:@selector(sliderTouchBegan:) forControlEvents:UIControlEventTouchDown];
     [self.progressSlider addTarget:self action:@selector(sliderValueChanged:) forControlEvents:UIControlEventValueChanged];
     [self.progressSlider addTarget:self action:@selector(sliderTouchEnded:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
     [self.view addSubview:self.progressSlider];
 
-    // Time Labels
     self.currentTimeLabel = [[UILabel alloc] init];
     self.currentTimeLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightRegular];
     self.currentTimeLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.6];
@@ -546,7 +581,6 @@
     self.durationLabel.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:self.durationLabel];
 
-    // Control Buttons
     self.shuffleButton = [UIButton buttonWithType:UIButtonTypeSystem];
     [self.shuffleButton setImage:[UIImage systemImageNamed:@"shuffle"] forState:UIControlStateNormal];
     self.shuffleButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -588,27 +622,28 @@
 }
 
 - (UIImage *)createThumbImageWithSize:(CGSize)size color:(UIColor *)color {
+    if (size.width <= 0 || size.height <= 0) return nil;
     UIGraphicsBeginImageContextWithOptions(size, NO, 0.0);
     CGContextRef context = UIGraphicsGetCurrentContext();
-    CGContextSetFillColorWithColor(context, color.CGColor);
-    CGContextFillEllipseInRect(context, CGRectMake(0, 0, size.width, size.height));
+    if (context) {
+        CGContextSetFillColorWithColor(context, color.CGColor);
+        CGContextFillEllipseInRect(context, CGRectMake(0, 0, size.width, size.height));
+    }
     UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
     return image;
 }
 
 - (void)updatePlayPauseButtonImage {
-    BOOL isPlaying = (self.player.timeControlStatus == AVPlayerTimeControlStatusPlaying);
+    BOOL isPlaying = (self.player && self.player.timeControlStatus == AVPlayerTimeControlStatusPlaying);
     NSString *symbolName = isPlaying ? @"pause.fill" : @"play.fill";
     UIImage *img = [UIImage systemImageNamed:symbolName];
     [self.playPauseButton setImage:img forState:UIControlStateNormal];
 }
 
 - (void)updateControlButtonsStyle {
-    // Shuffle Button Tint
     self.shuffleButton.tintColor = self.isShuffle ? [UIColor redColor] : [UIColor colorWithWhite:1.0 alpha:0.5];
 
-    // Repeat Button Tint & Icon
     if (self.repeatMode == YTMPlayerRepeatModeOff) {
         [self.repeatButton setImage:[UIImage systemImageNamed:@"repeat"] forState:UIControlStateNormal];
         self.repeatButton.tintColor = [UIColor colorWithWhite:1.0 alpha:0.5];
@@ -625,17 +660,14 @@
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
 
     [NSLayoutConstraint activateConstraints:@[
-        // Dismiss Button
         [self.dismissButton.topAnchor constraintEqualToAnchor:guide.topAnchor constant:12],
         [self.dismissButton.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:20],
         [self.dismissButton.widthAnchor constraintEqualToConstant:32],
         [self.dismissButton.heightAnchor constraintEqualToConstant:32],
 
-        // Header Label
         [self.headerTitleLabel.centerYAnchor constraintEqualToAnchor:self.dismissButton.centerYAnchor],
         [self.headerTitleLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
 
-        // Artwork Container
         [self.artworkShadowView.topAnchor constraintEqualToAnchor:self.dismissButton.bottomAnchor constant:24],
         [self.artworkShadowView.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
         [self.artworkShadowView.widthAnchor constraintEqualToAnchor:self.view.widthAnchor multiplier:0.8],
@@ -646,54 +678,44 @@
         [self.artworkImageView.leadingAnchor constraintEqualToAnchor:self.artworkShadowView.leadingAnchor],
         [self.artworkImageView.trailingAnchor constraintEqualToAnchor:self.artworkShadowView.trailingAnchor],
 
-        // Song Title
         [self.titleLabel.topAnchor constraintEqualToAnchor:self.artworkShadowView.bottomAnchor constant:36],
         [self.titleLabel.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:24],
         [self.titleLabel.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-24],
 
-        // Artist Name
         [self.artistLabel.topAnchor constraintEqualToAnchor:self.titleLabel.bottomAnchor constant:4],
         [self.artistLabel.leadingAnchor constraintEqualToAnchor:self.titleLabel.leadingAnchor],
         [self.artistLabel.trailingAnchor constraintEqualToAnchor:self.titleLabel.trailingAnchor],
 
-        // Progress Slider
         [self.progressSlider.topAnchor constraintEqualToAnchor:self.artistLabel.bottomAnchor constant:24],
         [self.progressSlider.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:24],
         [self.progressSlider.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-24],
 
-        // Current Time Label
         [self.currentTimeLabel.topAnchor constraintEqualToAnchor:self.progressSlider.bottomAnchor constant:6],
         [self.currentTimeLabel.leadingAnchor constraintEqualToAnchor:self.progressSlider.leadingAnchor],
 
-        // Duration Label
         [self.durationLabel.topAnchor constraintEqualToAnchor:self.progressSlider.bottomAnchor constant:6],
         [self.durationLabel.trailingAnchor constraintEqualToAnchor:self.progressSlider.trailingAnchor],
 
-        // Play/Pause Button
         [self.playPauseButton.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor constant:-40],
         [self.playPauseButton.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
         [self.playPauseButton.widthAnchor constraintEqualToConstant:64],
         [self.playPauseButton.heightAnchor constraintEqualToConstant:64],
 
-        // Previous Button
         [self.prevButton.centerYAnchor constraintEqualToAnchor:self.playPauseButton.centerYAnchor],
         [self.prevButton.trailingAnchor constraintEqualToAnchor:self.playPauseButton.leadingAnchor constant:-32],
         [self.prevButton.widthAnchor constraintEqualToConstant:36],
         [self.prevButton.heightAnchor constraintEqualToConstant:36],
 
-        // Next Button
         [self.nextButton.centerYAnchor constraintEqualToAnchor:self.playPauseButton.centerYAnchor],
         [self.nextButton.leadingAnchor constraintEqualToAnchor:self.playPauseButton.trailingAnchor constant:32],
         [self.nextButton.widthAnchor constraintEqualToConstant:36],
         [self.nextButton.heightAnchor constraintEqualToConstant:36],
 
-        // Shuffle Button
         [self.shuffleButton.centerYAnchor constraintEqualToAnchor:self.playPauseButton.centerYAnchor],
         [self.shuffleButton.trailingAnchor constraintEqualToAnchor:self.prevButton.leadingAnchor constant:-28],
         [self.shuffleButton.widthAnchor constraintEqualToConstant:28],
         [self.shuffleButton.heightAnchor constraintEqualToConstant:28],
 
-        // Repeat Button
         [self.repeatButton.centerYAnchor constraintEqualToAnchor:self.playPauseButton.centerYAnchor],
         [self.repeatButton.leadingAnchor constraintEqualToAnchor:self.nextButton.trailingAnchor constant:28],
         [self.repeatButton.widthAnchor constraintEqualToConstant:28],
