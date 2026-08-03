@@ -1,4 +1,5 @@
 #import "FFMpegDownloader.h"
+#import "Utils/YTMDownloadMetadata.h"
 
 @implementation FFMpegDownloader {
 
@@ -40,6 +41,7 @@
                 BOOL isMoved = [[NSFileManager defaultManager] moveItemAtURL:destinationURL toURL:outputURL error:nil];
 
                 if (isMoved) {
+                    [YTMDownloadMetadata saveMetadataForFileName:[NSString stringWithFormat:@"%@.m4a", self.mediaName] videoId:self.videoId title:self.trackTitle author:self.trackAuthor];
                     [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadDataNotification" object:nil];
                     self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
                     self.hud.mode = MBProgressHUDModeCustomView;

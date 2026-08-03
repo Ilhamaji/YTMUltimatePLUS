@@ -1,6 +1,11 @@
 #import "YTMDownloads.h"
 #import "../Player/YTMOfflinePlayerManager.h"
 #import "../Player/YTMOfflinePlayerViewController.h"
+#import "../Utils/YTMDownloadMetadata.h"
+
+@interface UIViewController (YTMNativePlayer)
++ (void)ytm_playVideoWithID:(NSString *)videoId fromSender:(id)sender;
+@end
 
 @implementation YTMDownloads
 
@@ -274,6 +279,7 @@
         [[NSFileManager defaultManager] moveItemAtURL:coverURL toURL:newCoverURL error:&error];
 
         if (!error) {
+            [YTMDownloadMetadata renameMetadataFrom:self.audioFiles[indexPath.row] to:[NSString stringWithFormat:@"%@.%@", newName, extension]];
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self reloadData];
                 [[YTMOfflinePlayerManager sharedManager] updatePlaylist:self.audioFiles];
@@ -302,6 +308,7 @@
         BOOL coverRemoved = [[NSFileManager defaultManager] removeItemAtURL:coverURL error:nil];
 
         if (audioRemoved && coverRemoved) {
+            [YTMDownloadMetadata removeMetadataForFileName:self.audioFiles[indexPath.row]];
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self.audioFiles removeObjectAtIndex:indexPath.row];
                 [[YTMOfflinePlayerManager sharedManager] updatePlaylist:self.audioFiles];
@@ -322,12 +329,19 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if (indexPath.section == 0) {
-        [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
-        [self.miniPlayerView updateState];
+        NSString *fileName = self.audioFiles[indexPath.row];
+        NSString *videoId = [YTMDownloadMetadata videoIdForFileName:fileName];
 
-        YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
-        playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
-        [self presentViewController:playerVC animated:YES completion:nil];
+        if (videoId && videoId.length > 0) {
+            [UIViewController ytm_playVideoWithID:videoId fromSender:[tableView cellForRowAtIndexPath:indexPath]];
+        } else {
+            [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
+            [self.miniPlayerView updateState];
+
+            YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
+            playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
+            [self presentViewController:playerVC animated:YES completion:nil];
+        }
     }
 
     if (indexPath.section == 1) {

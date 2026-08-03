@@ -99,6 +99,9 @@ static BOOL YTMU(NSString *key) {
     FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
     ffmpeg.tempName = playerVC.contentVideoID;
     ffmpeg.mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
+    ffmpeg.videoId = playerVC.contentVideoID;
+    ffmpeg.trackTitle = title;
+    ffmpeg.trackAuthor = author;
     ffmpeg.duration = round(playerVC.currentVideoTotalMediaTime);
 
     
