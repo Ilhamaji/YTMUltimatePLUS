@@ -252,17 +252,26 @@
             cell.imageView.layer.cornerRadius = 6;
 
             YTMOfflinePlayerManager *manager = [YTMOfflinePlayerManager sharedManager];
-            if ([manager.currentFileName isEqualToString:fileName]) {
-                cell.textLabel.textColor = [UIColor redColor];
-            }
+            BOOL isCurrentPlaying = [manager.currentFileName isEqualToString:fileName] && manager.isPlaying;
 
-            UIButton *addBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-            addBtn.frame = CGRectMake(0, 0, 36, 36);
-            [addBtn setImage:[UIImage systemImageNamed:@"plus.circle.fill"] forState:UIControlStateNormal];
-            addBtn.tintColor = [UIColor systemRedColor];
-            addBtn.tag = indexPath.row;
-            [addBtn addTarget:self action:@selector(didTapAddTrackToPlaylistButton:) forControlEvents:UIControlEventTouchUpInside];
-            cell.accessoryView = addBtn;
+            if (isCurrentPlaying) {
+                cell.textLabel.textColor = [UIColor systemRedColor];
+                cell.detailTextLabel.text = [NSString stringWithFormat:@"▶ NOW PLAYING • %@", cell.detailTextLabel.text ?: @"Offline Track"];
+                
+                UIImageView *playingBadge = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"speaker.wave.3.fill"]];
+                playingBadge.tintColor = [UIColor systemRedColor];
+                playingBadge.frame = CGRectMake(0, 0, 24, 24);
+                cell.accessoryView = playingBadge;
+            } else {
+                cell.textLabel.textColor = [UIColor whiteColor];
+                UIButton *addBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+                addBtn.frame = CGRectMake(0, 0, 36, 36);
+                [addBtn setImage:[UIImage systemImageNamed:@"plus.circle.fill"] forState:UIControlStateNormal];
+                addBtn.tintColor = [UIColor systemRedColor];
+                addBtn.tag = indexPath.row;
+                [addBtn addTarget:self action:@selector(didTapAddTrackToPlaylistButton:) forControlEvents:UIControlEventTouchUpInside];
+                cell.accessoryView = addBtn;
+            }
         }
 
         if (indexPath.section == 1) {
@@ -328,16 +337,17 @@
         if (indexPath.section == 0) {
             if (indexPath.row >= self.audioFiles.count) return;
 
-            NSString *fileName = self.audioFiles[indexPath.row];
             YTMOfflinePlayerManager *manager = [YTMOfflinePlayerManager sharedManager];
 
-            if ([manager.currentFileName isEqualToString:fileName] && manager.isPlaying) {
+            // If a song is currently playing, DO NOT change or restart the song! Just open the player!
+            if (manager.isPlaying) {
                 YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
                 playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
                 [self presentViewController:playerVC animated:YES completion:nil];
                 return;
             }
 
+            NSString *fileName = self.audioFiles[indexPath.row];
             NSString *videoId = [YTMDownloadMetadata videoIdForFileName:fileName] ?: fileName;
             [UIViewController ytm_playVideoWithID:videoId fromSender:[tableView cellForRowAtIndexPath:indexPath]];
 

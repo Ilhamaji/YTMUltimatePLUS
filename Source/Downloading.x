@@ -208,6 +208,13 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
         sheetController.sourceView = tapView;
         [sheetController addHeaderWithTitle:LOC(@"SELECT_ACTION") subtitle:nil];
 
+        BOOL isPlaylistDownload = [node.key containsString:@"playlist"] || [node.key containsString:@"header"];
+        if (isPlaylistDownload) {
+            [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:@"Download All Playlist Tracks" iconImage:[%c(YTUIResources) downloadOutline] style:0 handler:^ {
+                [self downloadPlaylistTracks:(id)tapView];
+            }]];
+        }
+
         [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_AUDIO") iconImage:[%c(YTUIResources) audioOutline] style:0 handler:^ {
             [self downloadAudio:(id)tapView];
         }]];
@@ -233,6 +240,19 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
         alertView.subtitle = LOC(@"DONT_RUSH_DESC");
         [alertView show];
     }
+}
+
+%new
+- (void)downloadPlaylistTracks:(UIView *)sourceView {
+    MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
+    hud.label.text = @"Downloading Playlist Tracks...";
+    
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        [self downloadAudio:sourceView];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [hud hideAnimated:YES];
+        });
+    });
 }
 
 %new
