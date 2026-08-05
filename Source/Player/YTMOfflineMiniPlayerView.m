@@ -170,6 +170,19 @@
     
     if (self.onTapExpandBlock) {
         self.onTapExpandBlock();
+    } else {
+        UIViewController *topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+        while (topVC.presentedViewController) {
+            topVC = topVC.presentedViewController;
+        }
+        if (![topVC isKindOfClass:NSClassFromString(@"YTMOfflinePlayerViewController")]) {
+            Class playerClass = NSClassFromString(@"YTMOfflinePlayerViewController");
+            if (playerClass) {
+                UIViewController *playerVC = [[playerClass alloc] init];
+                playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
+                [topVC presentViewController:playerVC animated:YES completion:nil];
+            }
+        }
     }
 }
 

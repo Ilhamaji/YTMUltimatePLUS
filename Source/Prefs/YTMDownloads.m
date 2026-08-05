@@ -73,6 +73,19 @@
     }
 }
 
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (self.tableView.tableHeaderView) {
+        UIView *header = self.tableView.tableHeaderView;
+        CGFloat width = self.view.bounds.size.width;
+        if (width > 0) {
+            header.frame = CGRectMake(0, 0, width, 64);
+            self.segmentedControl.frame = CGRectMake(16, 16, width - 32, 36);
+            self.tableView.tableHeaderView = header;
+        }
+    }
+}
+
 - (void)segmentChanged:(UISegmentedControl *)sender {
     self.selectedPlaylistFilter = nil;
     [self refreshAudioFiles];
@@ -316,8 +329,16 @@
             if (indexPath.row >= self.audioFiles.count) return;
 
             NSString *fileName = self.audioFiles[indexPath.row];
-            NSString *videoId = [YTMDownloadMetadata videoIdForFileName:fileName] ?: fileName;
+            YTMOfflinePlayerManager *manager = [YTMOfflinePlayerManager sharedManager];
 
+            if ([manager.currentFileName isEqualToString:fileName] && manager.isPlaying) {
+                YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
+                playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
+                [self presentViewController:playerVC animated:YES completion:nil];
+                return;
+            }
+
+            NSString *videoId = [YTMDownloadMetadata videoIdForFileName:fileName] ?: fileName;
             [UIViewController ytm_playVideoWithID:videoId fromSender:[tableView cellForRowAtIndexPath:indexPath]];
 
             [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
