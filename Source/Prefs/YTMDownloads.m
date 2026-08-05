@@ -27,8 +27,8 @@
     [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [[UIColor whiteColor] colorWithAlphaComponent:0.7]} forState:UIControlStateNormal];
     [self.segmentedControl addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
     
-    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.frame.size.width, 50)];
-    self.segmentedControl.frame = CGRectMake(16, 8, self.view.frame.size.width - 32, 34);
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.frame.size.width, 64)];
+    self.segmentedControl.frame = CGRectMake(16, 16, self.view.frame.size.width - 32, 36);
     self.segmentedControl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [headerView addSubview:self.segmentedControl];
     self.tableView.tableHeaderView = headerView;
@@ -46,7 +46,7 @@
     [self.view addSubview:self.miniPlayerView];
 
     [NSLayoutConstraint activateConstraints:@[
-        [self.tableView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:44],
+        [self.tableView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:54],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.tableView.bottomAnchor constraintEqualToAnchor:self.miniPlayerView.topAnchor],
@@ -62,6 +62,15 @@
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadData) name:@"ReloadDataNotification" object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onTrackChanged) name:YTMOfflinePlayerTrackDidChangeNotification object:nil];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refreshAudioFiles];
+    [self.tableView reloadData];
+    if (self.miniPlayerView) {
+        [self.miniPlayerView updateState];
+    }
 }
 
 - (void)segmentChanged:(UISegmentedControl *)sender {
@@ -252,11 +261,15 @@
                 cell.detailTextLabel.text = nil;
             } else {
                 if (indexPath.row == 0) {
-                    cell.textLabel.text = LOC(@"SHARE_ALL");
+                    NSString *shareTitle = LOC(@"SHARE_ALL");
+                    if ([shareTitle isEqualToString:@"SHARE_ALL"]) shareTitle = @"Share All Audios";
+                    cell.textLabel.text = shareTitle;
                     cell.textLabel.textColor = [UIColor systemBlueColor];
                     cell.detailTextLabel.text = nil;
                 } else if (indexPath.row == 1) {
-                    cell.textLabel.text = LOC(@"DELETE_ALL");
+                    NSString *delTitle = LOC(@"DELETE_ALL");
+                    if ([delTitle isEqualToString:@"DELETE_ALL"]) delTitle = @"Delete All Downloads";
+                    cell.textLabel.text = delTitle;
                     cell.textLabel.textColor = [UIColor systemRedColor];
                     cell.detailTextLabel.text = nil;
                 }

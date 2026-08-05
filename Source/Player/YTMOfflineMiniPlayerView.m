@@ -124,21 +124,23 @@
 }
 
 - (void)updateState {
-    YTMOfflinePlayerManager *manager = [YTMOfflinePlayerManager sharedManager];
-    
-    if (manager.currentFileName.length > 0) {
-        self.hidden = NO;
-        self.titleLabel.text = manager.currentTitle ?: @"";
-        self.artistLabel.text = manager.currentArtist ?: @"";
-        self.artworkImageView.image = manager.currentArtwork;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        YTMOfflinePlayerManager *manager = [YTMOfflinePlayerManager sharedManager];
         
-        NSString *iconName = manager.isPlaying ? @"pause.fill" : @"play.fill";
-        [self.playPauseButton setImage:[UIImage systemImageNamed:iconName] forState:UIControlStateNormal];
-        
-        [self updateTime];
-    } else {
-        self.hidden = YES;
-    }
+        if (manager.currentFileName.length > 0 || manager.currentTitle.length > 0) {
+            self.hidden = NO;
+            self.titleLabel.text = manager.currentTitle ?: @"Offline Track";
+            self.artistLabel.text = manager.currentArtist ?: @"Artist";
+            self.artworkImageView.image = manager.currentArtwork ?: [UIImage systemImageNamed:@"music.note"];
+            
+            NSString *iconName = manager.isPlaying ? @"pause.fill" : @"play.fill";
+            [self.playPauseButton setImage:[UIImage systemImageNamed:iconName] forState:UIControlStateNormal];
+            
+            [self updateTime];
+        } else {
+            self.hidden = YES;
+        }
+    });
 }
 
 - (void)updateTime {
