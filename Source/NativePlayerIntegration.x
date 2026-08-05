@@ -99,10 +99,11 @@
 %new
 - (void)ytmu_pauseOnlinePlayer {
     dispatch_async(dispatch_get_main_queue(), ^{
-        if ([self respondsToSelector:@selector(pause)]) {
-            [self performSelector:@selector(pause)];
-        } else if ([self respondsToSelector:@selector(pauseVideo)]) {
-            [self performSelector:@selector(pauseVideo)];
+        id playerObj = (id)self;
+        if ([playerObj respondsToSelector:@selector(pause)]) {
+            [playerObj performSelector:@selector(pause)];
+        } else if ([playerObj respondsToSelector:@selector(pauseVideo)]) {
+            [playerObj performSelector:@selector(pauseVideo)];
         }
     });
 }
