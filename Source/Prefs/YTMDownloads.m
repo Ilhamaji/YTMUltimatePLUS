@@ -450,7 +450,7 @@
 #pragma mark - Delete & Share Alerts
 
 - (void)showDeleteAlertForFile:(NSString *)fileName indexPath:(NSIndexPath *)indexPath {
-    YTAlertView *alertView = [%c(YTAlertView) confirmationDialogWithActionHandler:^ {
+    void (^deleteBlock)(void) = ^{
         NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
         NSURL *fileURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", fileName]];
         NSURL *artworkURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.png", [fileName stringByDeletingPathExtension]]];
@@ -460,14 +460,33 @@
 
         [YTMDownloadMetadata removeMetadataForFileName:fileName];
 
-        [self.audioFiles removeObjectAtIndex:indexPath.row];
-        [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+        if (indexPath.row < self.audioFiles.count) {
+            [self.audioFiles removeObjectAtIndex:indexPath.row];
+            [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+        } else {
+            [self refreshAudioFiles];
+            [self.tableView reloadData];
+        }
         [self maybeShowEmptyState];
-    } actionTitle:LOC(@"DELETE")];
-    
-    alertView.title = @"YTMusicUltimate";
-    alertView.subtitle = [NSString stringWithFormat:LOC(@"DELETE_MESSAGE"), [fileName stringByDeletingPathExtension]];
-    [alertView show];
+    };
+
+    Class alertClass = NSClassFromString(@"YTAlertView");
+    if (alertClass && [alertClass respondsToSelector:@selector(confirmationDialogWithActionHandler:actionTitle:)]) {
+        SEL sel = @selector(confirmationDialogWithActionHandler:actionTitle:);
+        IMP imp = [alertClass methodForSelector:sel];
+        id (*func)(id, SEL, id, id) = (id (*)(id, SEL, id, id))imp;
+        YTAlertView *alertView = func(alertClass, sel, deleteBlock, LOC(@"DELETE"));
+        alertView.title = @"YTMusicUltimate";
+        alertView.subtitle = [NSString stringWithFormat:LOC(@"DELETE_MESSAGE"), [fileName stringByDeletingPathExtension]];
+        [alertView show];
+    } else {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Delete File" message:[fileName stringByDeletingPathExtension] preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:LOC(@"CANCEL") style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:LOC(@"DELETE") style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+            deleteBlock();
+        }]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }
 }
 
 - (void)shareAll:(NSIndexPath *)indexPath {
@@ -484,7 +503,7 @@
 }
 
 - (void)removeAll {
-    YTAlertView *alertView = [%c(YTAlertView) confirmationDialogWithActionHandler:^ {
+    void (^removeAllBlock)(void) = ^{
         NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
         NSURL *downloadsURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
 
@@ -500,11 +519,25 @@
         [self.audioFiles removeAllObjects];
         [self.tableView reloadData];
         [self maybeShowEmptyState];
-    } actionTitle:LOC(@"DELETE_ALL")];
+    };
 
-    alertView.title = @"YTMusicUltimate";
-    alertView.subtitle = LOC(@"DELETE_ALL_MESSAGE");
-    [alertView show];
+    Class alertClass = NSClassFromString(@"YTAlertView");
+    if (alertClass && [alertClass respondsToSelector:@selector(confirmationDialogWithActionHandler:actionTitle:)]) {
+        SEL sel = @selector(confirmationDialogWithActionHandler:actionTitle:);
+        IMP imp = [alertClass methodForSelector:sel];
+        id (*func)(id, SEL, id, id) = (id (*)(id, SEL, id, id))imp;
+        YTAlertView *alertView = func(alertClass, sel, removeAllBlock, LOC(@"DELETE_ALL"));
+        alertView.title = @"YTMusicUltimate";
+        alertView.subtitle = LOC(@"DELETE_ALL_MESSAGE");
+        [alertView show];
+    } else {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Delete All" message:@"Are you sure you want to delete all downloaded files?" preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:LOC(@"CANCEL") style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:LOC(@"DELETE_ALL") style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+            removeAllBlock();
+        }]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }
 }
 
 @end

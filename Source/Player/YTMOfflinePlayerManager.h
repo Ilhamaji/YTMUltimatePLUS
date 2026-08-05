@@ -34,6 +34,7 @@ extern NSString * const YTMOfflinePlayerTimeDidChangeNotification;
 + (instancetype)sharedManager;
 
 - (void)playPlaylist:(NSArray<NSString *> *)playlist startIndex:(NSInteger)index;
+- (void)playTrackAtIndex:(NSInteger)index;
 - (void)play;
 - (void)pause;
 - (void)togglePlayPause;
