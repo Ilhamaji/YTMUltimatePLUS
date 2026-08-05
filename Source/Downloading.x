@@ -19,6 +19,10 @@ static BOOL YTMU(NSString *key) {
     return [YTMUltimateDict[key] boolValue];
 }
 
+@interface UIView (YTMAncestor)
+- (UIViewController *)_viewControllerForAncestor;
+@end
+
 static __weak id gActivePlayerResponse = nil;
 static __weak id gActivePlayerVC = nil;
 
