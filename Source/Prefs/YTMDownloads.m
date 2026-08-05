@@ -328,16 +328,24 @@
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+
     if (indexPath.section == 0) {
+        if (indexPath.row >= self.audioFiles.count) return;
+        
         NSString *fileName = self.audioFiles[indexPath.row];
         NSString *videoId = [YTMDownloadMetadata videoIdForFileName:fileName];
 
         if (videoId && videoId.length > 0) {
             [UIViewController ytm_playVideoWithID:videoId fromSender:[tableView cellForRowAtIndexPath:indexPath]];
-        } else {
-            [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
+        }
+        
+        [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
+        if (self.miniPlayerView) {
             [self.miniPlayerView updateState];
+        }
 
+        if (!videoId || videoId.length == 0) {
             YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
             playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
             [self presentViewController:playerVC animated:YES completion:nil];
