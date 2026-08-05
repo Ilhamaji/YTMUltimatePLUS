@@ -233,10 +233,19 @@
             if ([manager.currentFileName isEqualToString:fileName]) {
                 cell.textLabel.textColor = [UIColor redColor];
             }
+
+            UIButton *addBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+            addBtn.frame = CGRectMake(0, 0, 36, 36);
+            [addBtn setImage:[UIImage systemImageNamed:@"plus.circle.fill"] forState:UIControlStateNormal];
+            addBtn.tintColor = [UIColor systemRedColor];
+            addBtn.tag = indexPath.row;
+            [addBtn addTarget:self action:@selector(didTapAddTrackToPlaylistButton:) forControlEvents:UIControlEventTouchUpInside];
+            cell.accessoryView = addBtn;
         }
 
         if (indexPath.section == 1) {
             cell.imageView.image = nil;
+            cell.accessoryView = nil;
             if (self.selectedPlaylistFilter != nil) {
                 cell.textLabel.text = @"Show All Downloads";
                 cell.textLabel.textColor = [UIColor systemBlueColor];
@@ -255,6 +264,7 @@
         }
     } else {
         // Playlists view
+        cell.accessoryView = nil;
         if (indexPath.section == 0) {
             cell.textLabel.text = @"+ Create New Playlist";
             cell.textLabel.textColor = [UIColor systemBlueColor];
@@ -278,6 +288,13 @@
     return cell;
 }
 
+- (void)didTapAddTrackToPlaylistButton:(UIButton *)sender {
+    if (sender.tag < self.audioFiles.count) {
+        NSString *fileName = self.audioFiles[sender.tag];
+        [self showAddToPlaylistSheetForFile:fileName];
+    }
+}
+
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
@@ -286,11 +303,9 @@
             if (indexPath.row >= self.audioFiles.count) return;
 
             NSString *fileName = self.audioFiles[indexPath.row];
-            NSString *videoId = [YTMDownloadMetadata videoIdForFileName:fileName];
+            NSString *videoId = [YTMDownloadMetadata videoIdForFileName:fileName] ?: fileName;
 
-            if (videoId && videoId.length > 0) {
-                [UIViewController ytm_playVideoWithID:videoId fromSender:[tableView cellForRowAtIndexPath:indexPath]];
-            }
+            [UIViewController ytm_playVideoWithID:videoId fromSender:[tableView cellForRowAtIndexPath:indexPath]];
 
             [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
             if (self.miniPlayerView) {
@@ -390,18 +405,21 @@
 
 - (void)showAddToPlaylistSheetForFile:(NSString *)fileName {
     NSArray *playlists = [YTMDownloadMetadata allPlaylists];
-    if (playlists.count == 0) {
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"No Playlists" message:@"Create a playlist first from the Playlists tab." preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        [self presentViewController:alert animated:YES completion:nil];
-        return;
-    }
     
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Add to Playlist" message:[fileName stringByDeletingPathExtension] preferredStyle:UIAlertControllerStyleActionSheet];
+    NSString *cleanTitle = [fileName stringByDeletingPathExtension];
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Add to Playlist" message:cleanTitle preferredStyle:UIAlertControllerStyleActionSheet];
+    
+    [sheet addAction:[UIAlertAction actionWithTitle:@"+ Create New Playlist" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        [self promptCreatePlaylist];
+    }]];
     
     for (NSString *pName in playlists) {
         [sheet addAction:[UIAlertAction actionWithTitle:pName style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
             [YTMDownloadMetadata addTrack:fileName toPlaylist:pName];
+            
+            UIAlertController *toast = [UIAlertController alertControllerWithTitle:@"Added to Playlist" message:[NSString stringWithFormat:@"'%@' added to %@", cleanTitle, pName] preferredStyle:UIAlertControllerStyleAlert];
+            [toast addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:toast animated:YES completion:nil];
         }]];
     }
     

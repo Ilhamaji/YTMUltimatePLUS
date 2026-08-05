@@ -78,6 +78,14 @@
     
     if (vId) {
         NSString *localFileName = [YTMDownloadMetadata fileNameForVideoId:vId];
+        if (!localFileName) {
+            NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+            NSURL *directURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", vId]];
+            if ([[NSFileManager defaultManager] fileExistsAtPath:directURL.path]) {
+                localFileName = vId;
+            }
+        }
+        
         if (localFileName) {
             NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
             NSURL *localAudioURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", localFileName]];
