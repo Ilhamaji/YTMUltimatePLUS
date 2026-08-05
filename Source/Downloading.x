@@ -171,8 +171,9 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
 @end
 
 @interface ELMTouchCommandPropertiesHandler : NSObject
-- (void)downloadAudio:(YTPlayerViewController *)playerResponse;
-- (void)downloadCoverImage:(YTPlayerViewController *)playerResponse;
+- (void)downloadAudio:(id)sourceView;
+- (void)downloadCoverImage:(id)sourceView;
+- (void)downloadPlaylistTracks:(id)sourceView;
 - (NSString *)getURLFromManifest:(NSURL *)manifest;
 @end
 
