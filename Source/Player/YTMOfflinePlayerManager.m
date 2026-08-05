@@ -1,4 +1,5 @@
 #import "YTMOfflinePlayerManager.h"
+#import <AVFoundation/AVAudioSession.h>
 
 NSString * const YTMOfflinePlayerStateDidChangeNotification = @"YTMOfflinePlayerStateDidChangeNotification";
 NSString * const YTMOfflinePlayerTrackDidChangeNotification = @"YTMOfflinePlayerTrackDidChangeNotification";
@@ -20,6 +21,15 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 @property (nonatomic, strong) id timeObserverToken;
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *shuffledIndices;
 @property (nonatomic, assign) NSInteger currentShufflePosition;
+
+- (void)setupAudioSession;
+- (void)setupRemoteCommandCenter;
+- (void)removeTimeObserver;
+- (void)addTimeObserver;
+- (void)updateNowPlayingInfo;
+- (void)rebuildShuffleIndices;
+- (void)parseTrackMetadataForFile:(NSString *)fileName;
+- (void)handleItemDidPlayToEnd:(NSNotification *)notification;
 @end
 
 @implementation YTMOfflinePlayerManager
@@ -57,8 +67,6 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
     [self removeTimeObserver];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
-
-#import <AVFoundation/AVAudioSession.h>
 
 - (void)setupAudioSession {
     AVAudioSession *audioSession = [AVAudioSession sharedInstance];
@@ -341,7 +349,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
         self.currentTitle = [[components subarrayWithRange:NSMakeRange(1, components.count - 1)] componentsJoinedByString:@" - "];
     } else {
         self.currentTitle = cleanName;
-        self.currentArtist = LOC(@"DOWNLOADED_SONG");
+        self.currentArtist = @"Offline Track";
     }
     
     self.currentArtwork = [self artworkForAudioName:fileName];
