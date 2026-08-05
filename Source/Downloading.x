@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 #import "FFMpegDownloader.h"
 #import "Headers/YTUIResources.h"
 #import "Headers/YTMActionSheetController.h"
@@ -16,6 +17,55 @@
 static BOOL YTMU(NSString *key) {
     NSDictionary *YTMUltimateDict = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"YTMUltimate"];
     return [YTMUltimateDict[key] boolValue];
+}
+
+static YTPlayerResponse *getPlayerResponseFromPlayerVC(YTPlayerViewController *playerVC) {
+    if (!playerVC) return nil;
+    
+    if ([playerVC respondsToSelector:@selector(playerResponse)]) {
+        return [playerVC performSelector:@selector(playerResponse)];
+    }
+    if ([playerVC respondsToSelector:@selector(activePlayerResponse)]) {
+        return [(id)playerVC performSelector:@selector(activePlayerResponse)];
+    }
+    if (class_getInstanceVariable([playerVC class], "_playerResponse") != NULL) {
+        return [playerVC valueForKey:@"_playerResponse"];
+    }
+    if (class_getInstanceVariable([playerVC class], "_playerData") != NULL) {
+        return [playerVC valueForKey:@"_playerData"];
+    }
+    if (class_getInstanceVariable([playerVC class], "_activePlayerResponse") != NULL) {
+        return [playerVC valueForKey:@"_activePlayerResponse"];
+    }
+    return nil;
+}
+
+static NSString *getContentVideoIDFromPlayerVC(YTPlayerViewController *playerVC) {
+    if (!playerVC) return nil;
+    if ([playerVC respondsToSelector:@selector(contentVideoID)]) {
+        return [playerVC contentVideoID];
+    }
+    if ([playerVC respondsToSelector:@selector(currentVideoID)]) {
+        return [(id)playerVC performSelector:@selector(currentVideoID)];
+    }
+    if (class_getInstanceVariable([playerVC class], "_contentVideoID") != NULL) {
+        return [playerVC valueForKey:@"_contentVideoID"];
+    }
+    if (class_getInstanceVariable([playerVC class], "_videoID") != NULL) {
+        return [playerVC valueForKey:@"_videoID"];
+    }
+    return nil;
+}
+
+static CGFloat getTotalMediaTimeFromPlayerVC(YTPlayerViewController *playerVC) {
+    if (!playerVC) return 0;
+    if ([playerVC respondsToSelector:@selector(currentVideoTotalMediaTime)]) {
+        return playerVC.currentVideoTotalMediaTime;
+    }
+    if ([playerVC respondsToSelector:@selector(totalMediaTime)]) {
+        return [(id)playerVC currentVideoTotalMediaTime];
+    }
+    return 0;
 }
 
 @interface UIView ()
@@ -35,7 +85,6 @@ static BOOL YTMU(NSString *key) {
         return %orig;
     }
 
-
     if (class_getInstanceVariable([self class], "_tapRecognizer") == NULL) {
         return %orig;
     }
@@ -54,7 +103,7 @@ static BOOL YTMU(NSString *key) {
     YTMNowPlayingViewController *playingVC = (YTMNowPlayingViewController *)tapRecognizer.view._viewControllerForAncestor;
     YTMWatchViewController *watchVC = (YTMWatchViewController *)playingVC.parentViewController;
     YTPlayerViewController *playerVC = watchVC.playerViewController;
-    YTPlayerResponse *playerResponse = playerVC.playerResponse;
+    YTPlayerResponse *playerResponse = getPlayerResponseFromPlayerVC(playerVC);
 
     if (playerResponse) {
         YTMActionSheetController *sheetController = [%c(YTMActionSheetController) musicActionSheetController];
@@ -90,21 +139,22 @@ static BOOL YTMU(NSString *key) {
 
 %new
 - (void)downloadAudio:(YTPlayerViewController *)playerVC {
-    YTPlayerResponse *playerResponse = playerVC.playerResponse;
+    YTPlayerResponse *playerResponse = getPlayerResponseFromPlayerVC(playerVC);
+    if (!playerResponse) return;
 
     NSString *title = [playerResponse.playerData.videoDetails.title stringByReplacingOccurrencesOfString:@"/" withString:@""];
     NSString *author = [playerResponse.playerData.videoDetails.author stringByReplacingOccurrencesOfString:@"/" withString:@""];
     NSString *urlStr = playerResponse.playerData.streamingData.hlsManifestURL;
+    NSString *videoID = getContentVideoIDFromPlayerVC(playerVC);
 
     FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
-    ffmpeg.tempName = playerVC.contentVideoID;
+    ffmpeg.tempName = videoID;
     ffmpeg.mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
-    ffmpeg.videoId = playerVC.contentVideoID;
+    ffmpeg.videoId = videoID;
     ffmpeg.trackTitle = title;
     ffmpeg.trackAuthor = author;
-    ffmpeg.duration = round(playerVC.currentVideoTotalMediaTime);
+    ffmpeg.duration = round(getTotalMediaTimeFromPlayerVC(playerVC));
 
-    
     NSString *extractedURL = [self getURLFromManifest:[NSURL URLWithString:urlStr]];
     
     if (extractedURL.length > 0) {
@@ -159,7 +209,13 @@ static BOOL YTMU(NSString *key) {
         hud.mode = MBProgressHUDModeIndeterminate;
     });
 
-    YTPlayerResponse *playerResponse = playerVC.playerResponse;
+    YTPlayerResponse *playerResponse = getPlayerResponseFromPlayerVC(playerVC);
+    if (!playerResponse) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [hud hideAnimated:YES];
+        });
+        return;
+    }
 
     NSMutableArray *thumbnailsArray = playerResponse.playerData.videoDetails.thumbnail.thumbnailsArray;
     YTIThumbnailDetails_Thumbnail *thumbnail = [thumbnailsArray lastObject];
