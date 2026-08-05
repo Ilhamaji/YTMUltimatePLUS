@@ -1,5 +1,4 @@
 #import "YTMOfflinePlayerManager.h"
-#import <AVFoundation/AVAudioSession.h>
 
 NSString * const YTMOfflinePlayerStateDidChangeNotification = @"YTMOfflinePlayerStateDidChangeNotification";
 NSString * const YTMOfflinePlayerTrackDidChangeNotification = @"YTMOfflinePlayerTrackDidChangeNotification";
