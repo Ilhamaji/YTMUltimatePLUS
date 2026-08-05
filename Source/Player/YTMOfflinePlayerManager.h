@@ -1,7 +1,10 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#import <AVFoundation/AVFoundation.h>
 #import <MediaPlayer/MediaPlayer.h>
+#import <CoreMedia/CoreMedia.h>
+
+@class AVPlayer;
+@class AVPlayerItem;
 
 typedef NS_ENUM(NSInteger, YTMOfflineRepeatMode) {
     YTMOfflineRepeatModeOff = 0,

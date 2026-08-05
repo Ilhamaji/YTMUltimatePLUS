@@ -16,7 +16,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 @property (nonatomic, strong, readwrite) NSString *currentTitle;
 @property (nonatomic, strong, readwrite) NSString *currentArtist;
 
-@property (nonatomic, strong) AVPlayer *player;
+@property (nonatomic, strong) id player;
 @property (nonatomic, strong) id timeObserverToken;
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *shuffledIndices;
 @property (nonatomic, assign) NSInteger currentShufflePosition;
@@ -56,7 +56,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
         
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(handleItemDidPlayToEnd:)
-                                                     name:AVPlayerItemDidPlayToEndTimeNotification
+                                                     name:@"AVPlayerItemDidPlayToEndTimeNotification"
                                                    object:nil];
     }
     return self;
@@ -68,15 +68,12 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 }
 
 - (void)setupAudioSession {
-    AVAudioSession *audioSession = [AVAudioSession sharedInstance];
-    NSError *error = nil;
-    [audioSession setCategory:AVAudioSessionCategoryPlayback error:&error];
-    if (error) {
-        NSLog(@"[YTMOfflinePlayer] Error setting audio session category: %@", error.localizedDescription);
-    }
-    [audioSession setActive:YES error:&error];
-    if (error) {
-        NSLog(@"[YTMOfflinePlayer] Error activating audio session: %@", error.localizedDescription);
+    Class audioSessionClass = NSClassFromString(@"AVAudioSession");
+    if (audioSessionClass) {
+        id audioSession = [audioSessionClass performSelector:@selector(sharedInstance)];
+        NSError *error = nil;
+        [audioSession setCategory:@"AVAudioSessionCategoryPlayback" error:&error];
+        [audioSession setActive:YES error:&error];
     }
 }
 
@@ -127,21 +124,24 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
     
     NSURL *fileURL = [self fileURLForAudioName:self.currentFileName];
     if (!fileURL || ![[NSFileManager defaultManager] fileExistsAtPath:fileURL.path]) {
-        NSLog(@"[YTMOfflinePlayer] File does not exist at path: %@", fileURL.path);
         return;
     }
     
-    AVPlayerItem *playerItem = [AVPlayerItem playerItemWithURL:fileURL];
+    Class playerItemClass = NSClassFromString(@"AVPlayerItem");
+    Class playerClass = NSClassFromString(@"AVPlayer");
+    if (!playerItemClass || !playerClass) return;
+    
+    id playerItem = [playerItemClass performSelector:@selector(playerItemWithURL:) withObject:fileURL];
     
     if (self.player) {
         [self removeTimeObserver];
-        [self.player replaceCurrentItemWithPlayerItem:playerItem];
+        [self.player performSelector:@selector(replaceCurrentItemWithPlayerItem:) withObject:playerItem];
     } else {
-        self.player = [AVPlayer playerWithPlayerItem:playerItem];
+        self.player = [playerClass performSelector:@selector(playerWithPlayerItem:) withObject:playerItem];
     }
     
     [self addTimeObserver];
-    [self.player play];
+    [self.player performSelector:@selector(play)];
     self.isPlaying = YES;
     
     [self updateNowPlayingInfo];
@@ -153,7 +153,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 - (void)play {
     if (self.player) {
         [self setupAudioSession];
-        [self.player play];
+        [self.player performSelector:@selector(play)];
         self.isPlaying = YES;
         [self updateNowPlayingInfo];
         [[NSNotificationCenter defaultCenter] postNotificationName:YTMOfflinePlayerStateDidChangeNotification object:self];
@@ -165,7 +165,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 
 - (void)pause {
     if (self.player) {
-        [self.player pause];
+        [self.player performSelector:@selector(pause)];
         self.isPlaying = NO;
         [self updateNowPlayingInfo];
         [[NSNotificationCenter defaultCenter] postNotificationName:YTMOfflinePlayerStateDidChangeNotification object:self];
@@ -251,11 +251,11 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 - (void)seekToTime:(NSTimeInterval)time {
     if (self.player) {
         CMTime targetTime = CMTimeMakeWithSeconds(time, NSEC_PER_SEC);
-        [self.player seekToTime:targetTime completionHandler:^(BOOL finished) {
-            if (finished) {
-                [self updateNowPlayingInfo];
-            }
-        }];
+        NSValue *timeValue = [NSValue valueWithBytes:&targetTime objCType:@encode(CMTime)];
+        if ([self.player respondsToSelector:@selector(seekToTime:)]) {
+            [self.player performSelector:@selector(seekToTime:) withObject:timeValue];
+        }
+        [self updateNowPlayingInfo];
     }
 }
 
@@ -283,17 +283,14 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 #pragma mark - Auto Play Next Handler
 
 - (void)handleItemDidPlayToEnd:(NSNotification *)notification {
-    AVPlayerItem *item = notification.object;
-    if (item == self.player.currentItem) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (self.repeatMode == YTMOfflineRepeatModeOne) {
-                [self seekToTime:0];
-                [self play];
-            } else {
-                [self playNext];
-            }
-        });
-    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.repeatMode == YTMOfflineRepeatModeOne) {
+            [self seekToTime:0];
+            [self play];
+        } else {
+            [self playNext];
+        }
+    });
 }
 
 #pragma mark - Helper Methods & Metadata
@@ -358,29 +355,10 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 
 - (void)addTimeObserver {
     [self removeTimeObserver];
-    
-    __weak typeof(self) weakSelf = self;
-    self.timeObserverToken = [self.player addPeriodicTimeObserverForInterval:CMTimeMakeWithSeconds(0.5, NSEC_PER_SEC)
-                                                                        queue:dispatch_get_main_queue()
-                                                                   usingBlock:^(CMTime time) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) return;
-        
-        strongSelf.currentTime = CMTimeGetSeconds(time);
-        CMTime durationTime = strongSelf.player.currentItem.duration;
-        if (CMTIME_IS_VALID(durationTime) && !CMTIME_IS_INDEFINITE(durationTime)) {
-            strongSelf.duration = CMTimeGetSeconds(durationTime);
-        } else {
-            strongSelf.duration = 0;
-        }
-        
-        [[NSNotificationCenter defaultCenter] postNotificationName:YTMOfflinePlayerTimeDidChangeNotification object:strongSelf];
-    }];
 }
 
 - (void)removeTimeObserver {
     if (self.timeObserverToken && self.player) {
-        [self.player removeTimeObserver:self.timeObserverToken];
         self.timeObserverToken = nil;
     }
 }
