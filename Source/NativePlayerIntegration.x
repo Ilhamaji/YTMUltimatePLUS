@@ -4,6 +4,14 @@
 #import "Headers/YTPlayerResponse.h"
 #import "Utils/YTMDownloadMetadata.h"
 
+@interface YTIVideoDetails (YTM)
+@property (nonatomic, copy, readwrite) NSString *videoId;
+@end
+
+@interface YTPlayerResponse (YTM)
+- (NSString *)contentVideoID;
+@end
+
 @interface YTIWatchEndpoint : NSObject
 @property (nonatomic, copy, readwrite) NSString *videoId;
 @property (nonatomic, copy, readwrite) NSString *playlistId;
