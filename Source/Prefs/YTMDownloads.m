@@ -19,6 +19,20 @@
     self.tableView.backgroundColor = [UIColor colorWithRed:3/255.0 green:3/255.0 blue:3/255.0 alpha:1.0];
     [self.view addSubview:self.tableView];
 
+    // Segmented control for All Tracks vs Playlists
+    self.segmentedControl = [[UISegmentedControl alloc] initWithItems:@[@"All Tracks", @"Playlists"]];
+    self.segmentedControl.selectedSegmentIndex = 0;
+    self.segmentedControl.selectedSegmentTintColor = [UIColor redColor];
+    [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor]} forState:UIControlStateSelected];
+    [self.segmentedControl setTitleTextAttributes:@{NSForegroundColorAttributeName: [[UIColor whiteColor] colorWithAlphaComponent:0.7]} forState:UIControlStateNormal];
+    [self.segmentedControl addTarget:self action:@selector(segmentChanged:) forControlEvents:UIControlEventValueChanged];
+    
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.frame.size.width, 50)];
+    self.segmentedControl.frame = CGRectMake(16, 8, self.view.frame.size.width - 32, 34);
+    self.segmentedControl.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [headerView addSubview:self.segmentedControl];
+    self.tableView.tableHeaderView = headerView;
+
     self.miniPlayerView = [[YTMOfflineMiniPlayerView alloc] initWithFrame:CGRectZero];
     self.miniPlayerView.translatesAutoresizingMaskIntoConstraints = NO;
     __weak typeof(self) weakSelf = self;
@@ -50,35 +64,48 @@
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(onTrackChanged) name:YTMOfflinePlayerTrackDidChangeNotification object:nil];
 }
 
+- (void)segmentChanged:(UISegmentedControl *)sender {
+    self.selectedPlaylistFilter = nil;
+    [self refreshAudioFiles];
+    [self.tableView reloadData];
+}
+
 - (void)maybeShowEmptyState {
-    if (self.audioFiles.count == 0) {
-        self.imageView = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"yt_outline_audio_48pt" inBundle:[NSBundle mainBundle] compatibleWithTraitCollection:nil]];
-        self.imageView.contentMode = UIViewContentModeScaleAspectFit;
-        self.imageView.tintColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
-        self.imageView.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.tableView addSubview:self.imageView];
+    if (self.audioFiles.count == 0 && self.segmentedControl.selectedSegmentIndex == 0) {
+        if (!self.imageView) {
+            self.imageView = [[UIImageView alloc] initWithImage:[UIImage imageNamed:@"yt_outline_audio_48pt" inBundle:[NSBundle mainBundle] compatibleWithTraitCollection:nil]];
+            self.imageView.contentMode = UIViewContentModeScaleAspectFit;
+            self.imageView.tintColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
+            self.imageView.translatesAutoresizingMaskIntoConstraints = NO;
+            [self.tableView addSubview:self.imageView];
 
-        self.label = [[UILabel alloc] initWithFrame:CGRectZero];
-        self.label.text = LOC(@"EMPTY");
-        self.label.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
-        self.label.numberOfLines = 0;
-        self.label.font = [UIFont systemFontOfSize:16];
-        self.label.textAlignment = NSTextAlignmentCenter;
-        self.label.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.label sizeToFit];
-        [self.tableView addSubview:self.label];
+            self.label = [[UILabel alloc] initWithFrame:CGRectZero];
+            self.label.text = LOC(@"EMPTY");
+            self.label.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
+            self.label.numberOfLines = 0;
+            self.label.font = [UIFont systemFontOfSize:16];
+            self.label.textAlignment = NSTextAlignmentCenter;
+            self.label.translatesAutoresizingMaskIntoConstraints = NO;
+            [self.label sizeToFit];
+            [self.tableView addSubview:self.label];
 
-        [NSLayoutConstraint activateConstraints:@[
-            [self.imageView.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
-            [self.imageView.bottomAnchor constraintEqualToAnchor:self.tableView.centerYAnchor constant:-30],
-            [self.imageView.widthAnchor constraintEqualToConstant:48],
-            [self.imageView.heightAnchor constraintEqualToConstant:48],
+            [NSLayoutConstraint activateConstraints:@[
+                [self.imageView.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
+                [self.imageView.bottomAnchor constraintEqualToAnchor:self.tableView.centerYAnchor constant:-30],
+                [self.imageView.widthAnchor constraintEqualToConstant:48],
+                [self.imageView.heightAnchor constraintEqualToConstant:48],
 
-            [self.label.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
-            [self.label.topAnchor constraintEqualToAnchor:self.imageView.bottomAnchor constant:20],
-            [self.label.leadingAnchor constraintEqualToAnchor:self.tableView.leadingAnchor constant:20],
-            [self.label.trailingAnchor constraintEqualToAnchor:self.tableView.trailingAnchor constant:-20],
-        ]];
+                [self.label.centerXAnchor constraintEqualToAnchor:self.tableView.centerXAnchor],
+                [self.label.topAnchor constraintEqualToAnchor:self.imageView.bottomAnchor constant:20],
+                [self.label.leadingAnchor constraintEqualToAnchor:self.tableView.leadingAnchor constant:20],
+                [self.label.trailingAnchor constraintEqualToAnchor:self.tableView.trailingAnchor constant:-20],
+            ]];
+        }
+        self.imageView.hidden = NO;
+        self.label.hidden = NO;
+    } else {
+        self.imageView.hidden = YES;
+        self.label.hidden = YES;
     }
 }
 
@@ -105,7 +132,6 @@
     NSArray *allFiles = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:downloadsURL.path error:&error];
 
     if (error) {
-        NSLog(@"Error reading contents of directory: %@", error.localizedDescription);
         return;
     }
 
@@ -113,24 +139,45 @@
     NSPredicate *mp3Predicate = [NSPredicate predicateWithFormat:@"SELF ENDSWITH[c] '.mp3'"];
     NSPredicate *predicate = [NSCompoundPredicate orPredicateWithSubpredicates:@[m4aPredicate, mp3Predicate]];
 
-    self.audioFiles = [NSMutableArray arrayWithArray:[allFiles filteredArrayUsingPredicate:predicate]];
+    NSArray *filtered = [allFiles filteredArrayUsingPredicate:predicate];
 
-    self.imageView.tintColor = self.audioFiles.count == 0 ? [[UIColor whiteColor] colorWithAlphaComponent:0.8] : [UIColor clearColor];
-    self.label.textColor = self.audioFiles.count == 0 ? [[UIColor whiteColor] colorWithAlphaComponent:0.8] : [UIColor clearColor];
+    if (self.selectedPlaylistFilter) {
+        NSArray *playlistTracks = [YTMDownloadMetadata tracksForPlaylist:self.selectedPlaylistFilter];
+        NSMutableArray *matched = [NSMutableArray array];
+        for (NSString *track in playlistTracks) {
+            if ([filtered containsObject:track]) {
+                [matched addObject:track];
+            }
+        }
+        self.audioFiles = matched;
+    } else {
+        self.audioFiles = [NSMutableArray arrayWithArray:filtered];
+    }
+
+    [self maybeShowEmptyState];
 }
 
 #pragma mark - Table view stuff
+
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section == 0 ? @"\n\n" : nil; //Temporary, see YTMTab.x
+    if (self.segmentedControl.selectedSegmentIndex == 0) {
+        if (self.selectedPlaylistFilter) {
+            return [NSString stringWithFormat:@"Playlist: %@", self.selectedPlaylistFilter];
+        }
+        return @"\n";
+    }
+    return nil;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    return section == 1 ? @"\n\n\n" : nil; //Temporary, see YTMTab.x
+    return nil;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 1 && self.audioFiles.count == 0) {
-        return 0;
+    if (self.segmentedControl.selectedSegmentIndex == 0) {
+        if (indexPath.section == 1 && self.audioFiles.count == 0) {
+            return 0;
+        }
     }
     return UITableViewAutomaticDimension;
 }
@@ -140,274 +187,324 @@
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) {
-        return self.audioFiles.count;
+    if (self.segmentedControl.selectedSegmentIndex == 0) {
+        if (section == 0) return self.audioFiles.count;
+        return (self.selectedPlaylistFilter != nil) ? 1 : 2;
+    } else {
+        if (section == 0) return 1; // Create Playlist
+        return [YTMDownloadMetadata allPlaylists].count;
     }
-
-    if (section == 1) {
-        return 2;
-    }
-
-    return 0;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell"];
-    if (cell == nil) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cell"];
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Cell"];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"Cell"];
     }
 
-    if (indexPath.section == 0 && indexPath.row < self.audioFiles.count) {
-        NSString *fileName = self.audioFiles[indexPath.row];
-        cell.textLabel.text = [fileName stringByDeletingPathExtension];
-        cell.textLabel.numberOfLines = 0;
+    cell.backgroundColor = [UIColor colorWithRed:20/255.0 green:20/255.0 blue:20/255.0 alpha:1.0];
+    cell.textLabel.textColor = [UIColor whiteColor];
+    cell.detailTextLabel.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.6];
+    cell.imageView.image = nil;
+    cell.accessoryType = UITableViewCellAccessoryNone;
 
-        BOOL isCurrentPlaying = [fileName isEqualToString:[YTMOfflinePlayerManager sharedManager].currentFileName];
-        if (isCurrentPlaying) {
-            cell.textLabel.textColor = [UIColor colorWithRed:255/255.0 green:80/255.0 blue:80/255.0 alpha:1.0];
-            UIImageView *playingIconView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"waveform"]];
-            playingIconView.tintColor = [UIColor redColor];
-            cell.accessoryView = playingIconView;
-        } else {
-            cell.textLabel.textColor = [UIColor whiteColor];
-            cell.accessoryView = nil;
+    if (self.segmentedControl.selectedSegmentIndex == 0) {
+        // Tracks view
+        if (indexPath.section == 0) {
+            NSString *fileName = self.audioFiles[indexPath.row];
+            NSString *cleanName = [fileName stringByDeletingPathExtension];
+            NSArray *components = [cleanName componentsSeparatedByString:@" - "];
+
+            if (components.count >= 2) {
+                cell.textLabel.text = [[components subarrayWithRange:NSMakeRange(1, components.count - 1)] componentsJoinedByString:@" - "];
+                cell.detailTextLabel.text = components[0];
+            } else {
+                cell.textLabel.text = cleanName;
+                cell.detailTextLabel.text = @"Offline Track";
+            }
+
+            UIImage *artwork = [[YTMOfflinePlayerManager sharedManager] artworkForAudioName:fileName];
+            cell.imageView.image = artwork;
+            cell.imageView.contentMode = UIViewContentModeScaleAspectFill;
+            cell.imageView.clipsToBounds = YES;
+            cell.imageView.layer.cornerRadius = 6;
+
+            YTMOfflinePlayerManager *manager = [YTMOfflinePlayerManager sharedManager];
+            if ([manager.currentFileName isEqualToString:fileName]) {
+                cell.textLabel.textColor = [UIColor redColor];
+            }
         }
 
-        cell.backgroundColor = [[UIColor grayColor] colorWithAlphaComponent:0.25];
-
-        NSString *imageName = [NSString stringWithFormat:@"%@.png", [fileName stringByDeletingPathExtension]];
-        NSString *documentsDirectory = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
-
-        UIImage *image = [UIImage imageWithContentsOfFile:[[documentsDirectory stringByAppendingPathComponent:@"YTMusicUltimate"] stringByAppendingPathComponent:imageName]];
-        CGFloat targetSize = 37.5;
-        CGFloat scaleFactor = targetSize / MAX(image.size.width, image.size.height);
-        CGSize scaledSize = CGSizeMake(image.size.width * scaleFactor, image.size.height * scaleFactor);
-        UIGraphicsBeginImageContextWithOptions(scaledSize, NO, 0.0);
-        [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height) cornerRadius:6] addClip];
-        [image drawInRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height)];
-        UIImage *roundedImage = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-        roundedImage = [roundedImage imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
-        cell.imageView.image = roundedImage;
-    }
-
-    else if (indexPath.section == 1) {
-        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cell0"];
-        NSArray *settingsData = @[
-            @{@"title": LOC(@"SHARE_ALL"), @"icon": @"square.and.arrow.up.on.square"},
-            @{@"title": LOC(@"REMOVE_ALL"), @"icon": @"trash"},
-        ];
-
-        NSDictionary *data = settingsData[indexPath.row];
-
-        cell.textLabel.text = data[@"title"];
-        cell.textLabel.textColor = [UIColor whiteColor];
-        cell.textLabel.adjustsFontSizeToFitWidth = YES;
-        cell.imageView.image = [UIImage systemImageNamed:data[@"icon"]];
-        cell.imageView.tintColor = indexPath.row == 1 ? [UIColor redColor] : [UIColor colorWithRed:30.0/255.0 green:150.0/255.0 blue:245.0/255.0 alpha:1.0];
-        cell.backgroundColor = [[UIColor grayColor] colorWithAlphaComponent:0.25];
-        cell.accessoryView = nil;
+        if (indexPath.section == 1) {
+            cell.imageView.image = nil;
+            if (self.selectedPlaylistFilter != nil) {
+                cell.textLabel.text = @"Show All Downloads";
+                cell.textLabel.textColor = [UIColor systemBlueColor];
+                cell.detailTextLabel.text = nil;
+            } else {
+                if (indexPath.row == 0) {
+                    cell.textLabel.text = LOC(@"SHARE_ALL");
+                    cell.textLabel.textColor = [UIColor systemBlueColor];
+                    cell.detailTextLabel.text = nil;
+                } else if (indexPath.row == 1) {
+                    cell.textLabel.text = LOC(@"DELETE_ALL");
+                    cell.textLabel.textColor = [UIColor systemRedColor];
+                    cell.detailTextLabel.text = nil;
+                }
+            }
+        }
+    } else {
+        // Playlists view
+        if (indexPath.section == 0) {
+            cell.textLabel.text = @"+ Create New Playlist";
+            cell.textLabel.textColor = [UIColor systemBlueColor];
+            cell.detailTextLabel.text = nil;
+            cell.imageView.image = [UIImage systemImageNamed:@"plus.circle.fill"];
+            cell.imageView.tintColor = [UIColor systemBlueColor];
+        } else {
+            NSArray *playlists = [YTMDownloadMetadata allPlaylists];
+            if (indexPath.row < playlists.count) {
+                NSString *pName = playlists[indexPath.row];
+                NSArray *tracks = [YTMDownloadMetadata tracksForPlaylist:pName];
+                cell.textLabel.text = pName;
+                cell.detailTextLabel.text = [NSString stringWithFormat:@"%lu tracks", (unsigned long)tracks.count];
+                cell.imageView.image = [UIImage systemImageNamed:@"music.note.list"];
+                cell.imageView.tintColor = [UIColor redColor];
+                cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+            }
+        }
     }
 
     return cell;
 }
 
-- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == 0) {
-        UIContextualAction *shareAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"" handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
-            [self showActivityViewControllerForIndexPath:indexPath];
-            completionHandler(YES);
-        }];
-        shareAction.image = [UIImage systemImageNamed:@"square.and.arrow.up"];
-        shareAction.backgroundColor = [UIColor systemBlueColor];
-
-        UIContextualAction *renameAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"" handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
-            [self renameFileForIndexPath:indexPath];
-            completionHandler(YES);
-        }];
-        renameAction.image = [UIImage systemImageNamed:@"pencil"];
-        renameAction.backgroundColor = [UIColor systemOrangeColor];
-
-        UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"" handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
-            [self deleteFileForIndexPath:indexPath];
-            completionHandler(YES);
-        }];
-        deleteAction.image = [UIImage systemImageNamed:@"trash"];
-
-        UISwipeActionsConfiguration *configuration = [UISwipeActionsConfiguration configurationWithActions:@[deleteAction, renameAction, shareAction]];
-        configuration.performsFirstActionWithFullSwipe = YES;
-
-        return configuration;
-    } else {
-        return nil;
-    }
-}
-
-- (void)showActivityViewControllerForIndexPath:(NSIndexPath *)indexPath {
-    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-    NSURL *audioURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", self.audioFiles[indexPath.row]]];
-
-    [self activityControllerWithObjects:@[audioURL] sender:[self.tableView cellForRowAtIndexPath:indexPath]];
-}
-
-- (void)renameFileForIndexPath:(NSIndexPath *)indexPath {
-    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-    NSURL *audioURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", self.audioFiles[indexPath.row]]];
-    NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.png", [self.audioFiles[indexPath.row] stringByDeletingPathExtension]]];
-
-    UITextView *textView = [[UITextView alloc] init];
-    textView.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.15];
-    textView.layer.cornerRadius = 3.0;
-    textView.layer.borderWidth = 1.0;
-    textView.layer.borderColor = [[UIColor grayColor] colorWithAlphaComponent:0.5].CGColor;
-    textView.textColor = [UIColor whiteColor];
-    textView.text = [self.audioFiles[indexPath.row] stringByDeletingPathExtension];
-    textView.editable = YES;
-    textView.scrollEnabled = YES;
-    textView.textAlignment = NSTextAlignmentNatural;
-    textView.font = [UIFont systemFontOfSize:14.0];
-
-    YTAlertView *alertView = [NSClassFromString(@"YTAlertView") confirmationDialogWithAction:^{
-        NSString *newName = [textView.text stringByReplacingOccurrencesOfString:@"/" withString:@""];
-        NSString *extension = [audioURL pathExtension];
-
-        NSURL *newAudioURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.%@", newName, extension]];
-        NSURL *newCoverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.png", newName]];
-
-        NSError *error = nil;
-        [[NSFileManager defaultManager] moveItemAtURL:audioURL toURL:newAudioURL error:&error];
-        [[NSFileManager defaultManager] moveItemAtURL:coverURL toURL:newCoverURL error:&error];
-
-        if (!error) {
-            [YTMDownloadMetadata renameMetadataFrom:self.audioFiles[indexPath.row] to:[NSString stringWithFormat:@"%@.%@", newName, extension]];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self reloadData];
-                [[YTMOfflinePlayerManager sharedManager] updatePlaylist:self.audioFiles];
-                [[NSClassFromString(@"YTMToastController") alloc] showMessage:LOC(@"DONE")];
-            });
-        }
-    }
-    actionTitle:LOC(@"RENAME")];
-    alertView.title = @"YTMusicUltimate";
-
-    UIView *customView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, alertView.frameForDialog.size.width - 50, 75)];
-    textView.frame = customView.frame;
-    [customView addSubview:textView];
-
-    alertView.customContentView = customView;
-    [alertView show];
-}
-
-- (void)deleteFileForIndexPath:(NSIndexPath *)indexPath {
-    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-    NSURL *audioURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", self.audioFiles[indexPath.row]]];
-    NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.png", [self.audioFiles[indexPath.row] stringByDeletingPathExtension]]];
-
-    YTAlertView *alertView = [NSClassFromString(@"YTAlertView") confirmationDialogWithAction:^{
-        BOOL audioRemoved = [[NSFileManager defaultManager] removeItemAtURL:audioURL error:nil];
-        BOOL coverRemoved = [[NSFileManager defaultManager] removeItemAtURL:coverURL error:nil];
-
-        if (audioRemoved && coverRemoved) {
-            [YTMDownloadMetadata removeMetadataForFileName:self.audioFiles[indexPath.row]];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.audioFiles removeObjectAtIndex:indexPath.row];
-                [[YTMOfflinePlayerManager sharedManager] updatePlaylist:self.audioFiles];
-                [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-                [self maybeShowEmptyState];
-            });
-        }
-    }
-    actionTitle:LOC(@"DELETE")];
-    alertView.title = @"YTMusicUltimate";
-    alertView.subtitle = [NSString stringWithFormat:LOC(@"DELETE_MESSAGE"), [self.audioFiles[indexPath.row] stringByDeletingPathExtension]];
-    [alertView show];
-}
-
-- (BOOL)tableView:(UITableView *)tableView shouldHighlightRowAtIndexPath:(NSIndexPath *)indexPath {
-    return YES;
-}
-
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
-    if (indexPath.section == 0) {
-        if (indexPath.row >= self.audioFiles.count) return;
+    if (self.segmentedControl.selectedSegmentIndex == 0) {
+        if (indexPath.section == 0) {
+            if (indexPath.row >= self.audioFiles.count) return;
 
-        [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
-        if (self.miniPlayerView) {
-            [self.miniPlayerView updateState];
+            [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
+            if (self.miniPlayerView) {
+                [self.miniPlayerView updateState];
+            }
+
+            YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
+            playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
+            [self presentViewController:playerVC animated:YES completion:nil];
         }
 
-        YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
-        playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
-        [self presentViewController:playerVC animated:YES completion:nil];
+        if (indexPath.section == 1) {
+            if (self.selectedPlaylistFilter != nil) {
+                self.selectedPlaylistFilter = nil;
+                [self refreshAudioFiles];
+                [self.tableView reloadData];
+            } else {
+                if (indexPath.row == 0) {
+                    [self shareAll:indexPath];
+                } else if (indexPath.row == 1) {
+                    [self removeAll];
+                }
+            }
+        }
+    } else {
+        // Playlists section tap
+        if (indexPath.section == 0) {
+            [self promptCreatePlaylist];
+        } else {
+            NSArray *playlists = [YTMDownloadMetadata allPlaylists];
+            if (indexPath.row < playlists.count) {
+                NSString *pName = playlists[indexPath.row];
+                [self showPlaylistActionSheetForName:pName];
+            }
+        }
+    }
+}
+
+#pragma mark - Context Actions & Swipe
+
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section != 0) return nil;
+
+    if (self.segmentedControl.selectedSegmentIndex == 0) {
+        NSString *fileName = self.audioFiles[indexPath.row];
+
+        UIContextualAction *deleteAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:LOC(@"DELETE") handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
+            [self showDeleteAlertForFile:fileName indexPath:indexPath];
+            completionHandler(YES);
+        }];
+
+        UIContextualAction *addPlaylistAction = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"+ Playlist" handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
+            [self showAddToPlaylistSheetForFile:fileName];
+            completionHandler(YES);
+        }];
+        addPlaylistAction.backgroundColor = [UIColor systemBlueColor];
+
+        return [UISwipeActionsConfiguration configurationWithActions:@[deleteAction, addPlaylistAction]];
+    } else {
+        NSArray *playlists = [YTMDownloadMetadata allPlaylists];
+        if (indexPath.row < playlists.count) {
+            NSString *pName = playlists[indexPath.row];
+            UIContextualAction *deleteP = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:LOC(@"DELETE") handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
+                [YTMDownloadMetadata deletePlaylistNamed:pName];
+                [self.tableView reloadData];
+                completionHandler(YES);
+            }];
+            return [UISwipeActionsConfiguration configurationWithActions:@[deleteP]];
+        }
     }
 
-    if (indexPath.section == 1) {
-        if (indexPath.row == 0) {
-            [self shareAll:indexPath];
-        }
+    return nil;
+}
 
-        if (indexPath.row == 1) {
-            [self removeAll];
+#pragma mark - Playlist Management Helpers
+
+- (void)promptCreatePlaylist {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"New Playlist" message:@"Enter a name for the new playlist:" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
+        textField.placeholder = @"Playlist Name";
+    }];
+    
+    UIAlertAction *create = [UIAlertAction actionWithTitle:@"Create" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        UITextField *tf = alert.textFields.firstObject;
+        NSString *name = [tf.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (name.length > 0) {
+            [YTMDownloadMetadata createPlaylistNamed:name];
+            [self.tableView reloadData];
         }
+    }];
+    
+    UIAlertAction *cancel = [UIAlertAction actionWithTitle:LOC(@"CANCEL") style:UIAlertActionStyleCancel handler:nil];
+    [alert addAction:cancel];
+    [alert addAction:create];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)showAddToPlaylistSheetForFile:(NSString *)fileName {
+    NSArray *playlists = [YTMDownloadMetadata allPlaylists];
+    if (playlists.count == 0) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"No Playlists" message:@"Create a playlist first from the Playlists tab." preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
     }
+    
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Add to Playlist" message:[fileName stringByDeletingPathExtension] preferredStyle:UIAlertControllerStyleActionSheet];
+    
+    for (NSString *pName in playlists) {
+        [sheet addAction:[UIAlertAction actionWithTitle:pName style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            [YTMDownloadMetadata addTrack:fileName toPlaylist:pName];
+        }]];
+    }
+    
+    [sheet addAction:[UIAlertAction actionWithTitle:LOC(@"CANCEL") style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
 
-    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+- (void)showPlaylistActionSheetForName:(NSString *)pName {
+    NSArray *tracks = [YTMDownloadMetadata tracksForPlaylist:pName];
+    
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:pName message:[NSString stringWithFormat:@"%lu tracks", (unsigned long)tracks.count] preferredStyle:UIAlertControllerStyleActionSheet];
+    
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Play Playlist" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        if (tracks.count > 0) {
+            [YTMOfflinePlayerManager sharedManager].isShuffleEnabled = NO;
+            [[YTMOfflinePlayerManager sharedManager] playPlaylist:tracks startIndex:0];
+            if (self.miniPlayerView) [self.miniPlayerView updateState];
+            
+            YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
+            playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
+            [self presentViewController:playerVC animated:YES completion:nil];
+        }
+    }]];
+    
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Shuffle Playlist" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        if (tracks.count > 0) {
+            [YTMOfflinePlayerManager sharedManager].isShuffleEnabled = YES;
+            [[YTMOfflinePlayerManager sharedManager] playPlaylist:tracks startIndex:0];
+            if (self.miniPlayerView) [self.miniPlayerView updateState];
+            
+            YTMOfflinePlayerViewController *playerVC = [[YTMOfflinePlayerViewController alloc] init];
+            playerVC.modalPresentationStyle = UIModalPresentationFullScreen;
+            [self presentViewController:playerVC animated:YES completion:nil];
+        }
+    }]];
+    
+    [sheet addAction:[UIAlertAction actionWithTitle:@"View Tracks" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        self.selectedPlaylistFilter = pName;
+        self.segmentedControl.selectedSegmentIndex = 0;
+        [self refreshAudioFiles];
+        [self.tableView reloadData];
+    }]];
+    
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Delete Playlist" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+        [YTMDownloadMetadata deletePlaylistNamed:pName];
+        [self.tableView reloadData];
+    }]];
+    
+    [sheet addAction:[UIAlertAction actionWithTitle:LOC(@"CANCEL") style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+#pragma mark - Delete & Share Alerts
+
+- (void)showDeleteAlertForFile:(NSString *)fileName indexPath:(NSIndexPath *)indexPath {
+    YTAlertView *alertView = [%c(YTAlertView) confirmationDialogWithActionHandler:^ {
+        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+        NSURL *fileURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", fileName]];
+        NSURL *artworkURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.png", [fileName stringByDeletingPathExtension]]];
+
+        [[NSFileManager defaultManager] removeItemAtURL:fileURL error:nil];
+        [[NSFileManager defaultManager] removeItemAtURL:artworkURL error:nil];
+
+        [YTMDownloadMetadata removeMetadataForFileName:fileName];
+
+        [self.audioFiles removeObjectAtIndex:indexPath.row];
+        [self.tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+        [self maybeShowEmptyState];
+    } actionTitle:LOC(@"DELETE")];
+    
+    alertView.title = @"YTMusicUltimate";
+    alertView.subtitle = [NSString stringWithFormat:LOC(@"DELETE_MESSAGE"), [fileName stringByDeletingPathExtension]];
+    [alertView show];
 }
 
 - (void)shareAll:(NSIndexPath *)indexPath {
     NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-    NSURL *audiosFolder = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
+    NSMutableArray *fileURLs = [NSMutableArray array];
 
-    NSArray<NSURL *> *files = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:audiosFolder
-                                                               includingPropertiesForKeys:@[NSURLNameKey, NSURLIsDirectoryKey]
-                                                                                  options:NSDirectoryEnumerationSkipsHiddenFiles
-                                                                                    error:nil];
+    for (NSString *fileName in self.audioFiles) {
+        NSURL *fileURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@", fileName]];
+        [fileURLs addObject:fileURL];
+    }
 
-    NSPredicate *predicate = [NSPredicate predicateWithFormat:@"pathExtension.lowercaseString == 'm4a' || pathExtension.lowercaseString == 'mp3'"];
-    files = [files filteredArrayUsingPredicate:predicate];
-
-    [self activityControllerWithObjects:files sender:[self.tableView cellForRowAtIndexPath:indexPath]];
+    UIActivityViewController *activityViewController = [[UIActivityViewController alloc] initWithActivityItems:fileURLs applicationActivities:nil];
+    [self presentViewController:activityViewController animated:YES completion:nil];
 }
 
 - (void)removeAll {
-    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-    NSURL *audiosFolder = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
+    YTAlertView *alertView = [%c(YTAlertView) confirmationDialogWithActionHandler:^ {
+        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+        NSURL *downloadsURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
 
-    YTAlertView *alertView = [NSClassFromString(@"YTAlertView") confirmationDialogWithAction:^{
-        BOOL audiosRemoved = [[NSFileManager defaultManager] removeItemAtURL:audiosFolder error:nil];
+        NSError *error;
+        NSArray *allFiles = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:downloadsURL.path error:&error];
 
-        if (audiosRemoved) {
-            [self.audioFiles removeAllObjects];
-            [[YTMOfflinePlayerManager sharedManager] updatePlaylist:self.audioFiles];
-            self.imageView.tintColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
-            self.label.textColor = [[UIColor whiteColor] colorWithAlphaComponent:0.8];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.tableView reloadData];
-            });
+        for (NSString *fileName in allFiles) {
+            NSURL *fileURL = [downloadsURL URLByAppendingPathComponent:fileName];
+            [[NSFileManager defaultManager] removeItemAtURL:fileURL error:nil];
+            [YTMDownloadMetadata removeMetadataForFileName:fileName];
         }
-    }
-    actionTitle:LOC(@"DELETE")];
+
+        [self.audioFiles removeAllObjects];
+        [self.tableView reloadData];
+        [self maybeShowEmptyState];
+    } actionTitle:LOC(@"DELETE_ALL")];
+
     alertView.title = @"YTMusicUltimate";
-    alertView.subtitle = [NSString stringWithFormat:LOC(@"DELETE_MESSAGE"), LOC(@"ALL_DOWNLOADS")];
+    alertView.subtitle = LOC(@"DELETE_ALL_MESSAGE");
     [alertView show];
-}
-
-- (void)activityControllerWithObjects:(NSArray<id> *)items sender:(UIView *)sender {
-    if (items.count == 0) return;
-
-    UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:items applicationActivities:nil];
-    activityVC.excludedActivityTypes = @[UIActivityTypeAssignToContact, UIActivityTypePrint];
-
-    UIPopoverPresentationController *popover = activityVC.popoverPresentationController;
-    if (popover && sender) {
-        popover.sourceView = sender;
-        popover.sourceRect = CGRectMake(CGRectGetWidth(sender.bounds) - 10.0, CGRectGetMidY(sender.bounds), 1.0, 1.0);
-        popover.permittedArrowDirections = UIPopoverArrowDirectionRight;
-    }
-
-    [self presentViewController:activityVC animated:YES completion:nil];
 }
 
 @end

@@ -90,3 +90,20 @@
     return sd;
 }
 %end
+
+%hook YTPlayerViewController
+- (void)viewDidLoad {
+    %orig;
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(ytmu_pauseOnlinePlayer) name:@"YTMU_PauseOnlinePlayerNotification" object:nil];
+}
+%new
+- (void)ytmu_pauseOnlinePlayer {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([self respondsToSelector:@selector(pause)]) {
+            [self performSelector:@selector(pause)];
+        } else if ([self respondsToSelector:@selector(pauseVideo)]) {
+            [self performSelector:@selector(pauseVideo)];
+        }
+    });
+}
+%end

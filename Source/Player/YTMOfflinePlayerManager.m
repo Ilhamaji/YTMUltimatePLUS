@@ -135,6 +135,8 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
         self.player = [AVPlayer playerWithPlayerItem:playerItem];
     }
     
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"YTMU_PauseOnlinePlayerNotification" object:nil];
+    
     [self addTimeObserver];
     [self.player play];
     self.isPlaying = YES;

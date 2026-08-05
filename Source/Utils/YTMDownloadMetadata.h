@@ -10,4 +10,12 @@
 + (void)renameMetadataFrom:(NSString *)oldName to:(NSString *)newName;
 + (NSDictionary *)allMetadata;
 
+#pragma mark - Playlists Support
++ (NSArray<NSString *> *)allPlaylists;
++ (void)createPlaylistNamed:(NSString *)name;
++ (void)deletePlaylistNamed:(NSString *)name;
++ (void)addTrack:(NSString *)fileName toPlaylist:(NSString *)playlistName;
++ (void)removeTrack:(NSString *)fileName fromPlaylist:(NSString *)playlistName;
++ (NSArray<NSString *> *)tracksForPlaylist:(NSString *)playlistName;
+
 @end

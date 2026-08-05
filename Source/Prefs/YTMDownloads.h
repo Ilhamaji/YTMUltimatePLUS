@@ -13,5 +13,6 @@
 @property (nonatomic, strong) UIImageView *imageView;
 @property (nonatomic, strong) UILabel *label;
 @property (nonatomic, strong) YTMOfflineMiniPlayerView *miniPlayerView;
+@property (nonatomic, strong) UISegmentedControl *segmentedControl;
+@property (nonatomic, strong) NSString *selectedPlaylistFilter;
 @end
-
