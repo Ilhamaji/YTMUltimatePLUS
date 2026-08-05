@@ -19,6 +19,28 @@ static BOOL YTMU(NSString *key) {
     return [YTMUltimateDict[key] boolValue];
 }
 
+static __weak id gActivePlayerResponse = nil;
+static __weak id gActivePlayerVC = nil;
+
+%hook YTPlayerViewController
+- (void)setPlayerResponse:(id)response {
+    gActivePlayerResponse = response;
+    gActivePlayerVC = self;
+    %orig;
+}
+%end
+
+%hook YTMWatchViewController
+- (void)setPlayerResponse:(id)response {
+    gActivePlayerResponse = response;
+    %orig;
+}
+- (void)setPlayerViewController:(id)playerVC {
+    gActivePlayerVC = playerVC;
+    %orig;
+}
+%end
+
 static id callObjectSelector(id target, SEL sel) {
     if (!target || !sel || ![target respondsToSelector:sel]) return nil;
     IMP imp = [target methodForSelector:sel];
@@ -26,102 +48,116 @@ static id callObjectSelector(id target, SEL sel) {
     return func(target, sel);
 }
 
-static YTPlayerResponse *findPlayerResponseInHierarchy(UIViewController *playingVC) {
-    if (!playingVC) return nil;
+static id findPlayerResponseInObject(id obj, NSMutableSet *visited) {
+    if (!obj || [visited containsObject:obj]) return nil;
+    [visited addObject:obj];
     
-    NSMutableArray *candidates = [NSMutableArray array];
-    if (playingVC) [candidates addObject:playingVC];
-    if (playingVC.parentViewController) [candidates addObject:playingVC.parentViewController];
-    
-    for (UIViewController *vc in @[playingVC, playingVC.parentViewController ?: (id)[NSNull null]]) {
-        if ([vc isKindOfClass:[NSNull class]]) continue;
-        
-        id pvc1 = callObjectSelector(vc, NSSelectorFromString(@"playerViewController"));
-        if (pvc1) [candidates addObject:pvc1];
-        
-        if (class_getInstanceVariable([vc class], "_playerViewController") != NULL) {
-            id pvc2 = [vc valueForKey:@"_playerViewController"];
-            if (pvc2) [candidates addObject:pvc2];
+    for (NSString *selName in @[@"playerResponse", @"activePlayerResponse", @"playerData"]) {
+        SEL sel = NSSelectorFromString(selName);
+        if ([obj respondsToSelector:sel]) {
+            id res = callObjectSelector(obj, sel);
+            if (res) return res;
         }
     }
     
-    for (id obj in candidates) {
-        if ([obj isKindOfClass:[NSNull class]]) continue;
-        
-        for (NSString *selName in @[@"playerResponse", @"activePlayerResponse", @"playerData"]) {
-            SEL sel = NSSelectorFromString(selName);
-            id result = callObjectSelector(obj, sel);
-            if (result) return (YTPlayerResponse *)result;
-        }
-        
-        for (NSString *ivarName in @[@"_playerResponse", @"_playerData", @"_activePlayerResponse"]) {
-            if (class_getInstanceVariable([obj class], [ivarName UTF8String]) != NULL) {
-                id result = [obj valueForKey:ivarName];
-                if (result) return (YTPlayerResponse *)result;
+    for (NSString *ivarName in @[@"_playerResponse", @"_playerData", @"_activePlayerResponse", @"_playerViewController"]) {
+        if (class_getInstanceVariable([obj class], [ivarName UTF8String]) != NULL) {
+            id res = [obj valueForKey:ivarName];
+            if (res) {
+                id found = findPlayerResponseInObject(res, visited);
+                if (found) return found;
             }
+        }
+    }
+    
+    if ([obj isKindOfClass:[UIViewController class]]) {
+        UIViewController *vc = (UIViewController *)obj;
+        if (vc.parentViewController) {
+            id found = findPlayerResponseInObject(vc.parentViewController, visited);
+            if (found) return found;
+        }
+        if (vc.presentedViewController) {
+            id found = findPlayerResponseInObject(vc.presentedViewController, visited);
+            if (found) return found;
+        }
+        for (UIViewController *child in vc.childViewControllers) {
+            id found = findPlayerResponseInObject(child, visited);
+            if (found) return found;
+        }
+    }
+    
+    if ([obj isKindOfClass:[UIView class]]) {
+        UIView *v = (UIView *)obj;
+        if ([v respondsToSelector:@selector(_viewControllerForAncestor)]) {
+            id ancestor = [v _viewControllerForAncestor];
+            if (ancestor) {
+                id found = findPlayerResponseInObject(ancestor, visited);
+                if (found) return found;
+            }
+        }
+        if (v.nextResponder) {
+            id found = findPlayerResponseInObject(v.nextResponder, visited);
+            if (found) return found;
+        }
+        for (UIView *sub in v.subviews) {
+            id found = findPlayerResponseInObject(sub, visited);
+            if (found) return found;
         }
     }
     
     return nil;
 }
 
-static NSString *getContentVideoIDFromHierarchy(UIViewController *playingVC) {
-    if (!playingVC) return nil;
-    
-    NSMutableArray *candidates = [NSMutableArray array];
-    if (playingVC) [candidates addObject:playingVC];
-    if (playingVC.parentViewController) [candidates addObject:playingVC.parentViewController];
-    
-    for (UIViewController *vc in @[playingVC, playingVC.parentViewController ?: (id)[NSNull null]]) {
-        if ([vc isKindOfClass:[NSNull class]]) continue;
-        
-        id pvc1 = callObjectSelector(vc, NSSelectorFromString(@"playerViewController"));
-        if (pvc1) [candidates addObject:pvc1];
-        
-        if (class_getInstanceVariable([vc class], "_playerViewController") != NULL) {
-            id pvc2 = [vc valueForKey:@"_playerViewController"];
-            if (pvc2) [candidates addObject:pvc2];
-        }
+static YTPlayerResponse *findActivePlayerResponse(UIView *sourceView) {
+    if (gActivePlayerResponse) {
+        return (YTPlayerResponse *)gActivePlayerResponse;
     }
     
-    for (id obj in candidates) {
-        if ([obj isKindOfClass:[NSNull class]]) continue;
-        
+    NSMutableSet *visited = [NSMutableSet set];
+    if (sourceView) {
+        id resp = findPlayerResponseInObject(sourceView, visited);
+        if (resp) return (YTPlayerResponse *)resp;
+    }
+    
+    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    if (window && window.rootViewController) {
+        id resp = findPlayerResponseInObject(window.rootViewController, visited);
+        if (resp) return (YTPlayerResponse *)resp;
+    }
+    
+    return nil;
+}
+
+static NSString *getContentVideoIDFromHierarchy(UIView *sourceView) {
+    if (gActivePlayerVC) {
         for (NSString *selName in @[@"contentVideoID", @"currentVideoID", @"videoId"]) {
             SEL sel = NSSelectorFromString(selName);
-            id result = callObjectSelector(obj, sel);
-            if ([result isKindOfClass:[NSString class]] && [(NSString *)result length] > 0) {
-                return (NSString *)result;
+            id res = callObjectSelector(gActivePlayerVC, sel);
+            if ([res isKindOfClass:[NSString class]] && [(NSString *)res length] > 0) {
+                return (NSString *)res;
             }
         }
-        
-        for (NSString *ivarName in @[@"_contentVideoID", @"_videoID", @"_currentVideoID"]) {
-            if (class_getInstanceVariable([obj class], [ivarName UTF8String]) != NULL) {
-                id result = [obj valueForKey:ivarName];
-                if ([result isKindOfClass:[NSString class]] && [(NSString *)result length] > 0) {
-                    return (NSString *)result;
-                }
-            }
+    }
+    
+    id playerResp = findActivePlayerResponse(sourceView);
+    if (playerResp) {
+        id playerData = [playerResp respondsToSelector:@selector(playerData)] ? callObjectSelector(playerResp, @selector(playerData)) : playerResp;
+        id videoDetails = callObjectSelector(playerData, NSSelectorFromString(@"videoDetails"));
+        if (videoDetails && [videoDetails respondsToSelector:NSSelectorFromString(@"videoId")]) {
+            NSString *vId = callObjectSelector(videoDetails, NSSelectorFromString(@"videoId"));
+            if ([vId isKindOfClass:[NSString class]] && vId.length > 0) return vId;
         }
     }
     
     return nil;
 }
 
-static CGFloat getTotalMediaTimeFromHierarchy(UIViewController *playingVC) {
-    if (!playingVC) return 0;
-    
-    NSMutableArray *candidates = [NSMutableArray array];
-    if (playingVC) [candidates addObject:playingVC];
-    if (playingVC.parentViewController) [candidates addObject:playingVC.parentViewController];
-    
-    for (id obj in candidates) {
-        if ([obj respondsToSelector:NSSelectorFromString(@"currentVideoTotalMediaTime")]) {
-            SEL sel = NSSelectorFromString(@"currentVideoTotalMediaTime");
-            IMP imp = [obj methodForSelector:sel];
-            CGFloat (*func)(id, SEL) = (CGFloat (*)(id, SEL))imp;
-            return func(obj, sel);
-        }
+static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
+    if (gActivePlayerVC && [gActivePlayerVC respondsToSelector:NSSelectorFromString(@"currentVideoTotalMediaTime")]) {
+        SEL sel = NSSelectorFromString(@"currentVideoTotalMediaTime");
+        IMP imp = [gActivePlayerVC methodForSelector:sel];
+        CGFloat (*func)(id, SEL) = (CGFloat (*)(id, SEL))imp;
+        return func(gActivePlayerVC, sel);
     }
     return 0;
 }
@@ -154,27 +190,25 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIViewController *playingVC) {
         return %orig;
     }
 
-    if (![tapRecognizer.view._viewControllerForAncestor isKindOfClass:%c(YTMNowPlayingViewController)]) {
-        return %orig;
+    UIView *tapView = tapRecognizer.view;
+    UIViewController *presentingVC = [tapView respondsToSelector:@selector(_viewControllerForAncestor)] ? [tapView _viewControllerForAncestor] : nil;
+    if (!presentingVC) {
+        presentingVC = [UIApplication sharedApplication].keyWindow.rootViewController;
     }
 
-    YTMNowPlayingViewController *playingVC = (YTMNowPlayingViewController *)tapRecognizer.view._viewControllerForAncestor;
-    YTMWatchViewController *watchVC = (YTMWatchViewController *)playingVC.parentViewController;
-    YTPlayerViewController *playerVC = watchVC ? watchVC.playerViewController : nil;
-    
-    YTPlayerResponse *playerResponse = findPlayerResponseInHierarchy(playingVC);
+    YTPlayerResponse *playerResponse = findActivePlayerResponse(tapView);
 
     if (playerResponse) {
         YTMActionSheetController *sheetController = [%c(YTMActionSheetController) musicActionSheetController];
-        sheetController.sourceView = tapRecognizer.view;
+        sheetController.sourceView = tapView;
         [sheetController addHeaderWithTitle:LOC(@"SELECT_ACTION") subtitle:nil];
 
         [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_AUDIO") iconImage:[%c(YTUIResources) audioOutline] style:0 handler:^ {
-            [self downloadAudio:playerVC ? playerVC : (id)playingVC];
+            [self downloadAudio:(id)tapView];
         }]];
 
         [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_COVER") iconImage:[%c(YTUIResources) outlineImageWithColor:[UIColor whiteColor]] style:0 handler:^ {
-            [self downloadCoverImage:playerVC ? playerVC : (id)playingVC];
+            [self downloadCoverImage:(id)tapView];
         }]];
 
         [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_PREMIUM") iconImage:[%c(YTUIResources) downloadOutline] secondaryIconImage:[%c(YTUIResources) youtubePremiumBadgeLight] accessibilityIdentifier:nil handler:^ {
@@ -182,11 +216,11 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIViewController *playingVC) {
         }]];
 
         if (YTMU(@"downloadAudio") && YTMU(@"downloadCoverImage")) {
-            [sheetController presentFromViewController:playingVC animated:YES completion:nil];
+            [sheetController presentFromViewController:presentingVC animated:YES completion:nil];
         } else if (YTMU(@"downloadAudio")) {
-            [self downloadAudio:playerVC ? playerVC : (id)playingVC];
+            [self downloadAudio:(id)tapView];
         } else if (YTMU(@"downloadCoverImage")) {
-            [self downloadCoverImage:playerVC ? playerVC : (id)playingVC];
+            [self downloadCoverImage:(id)tapView];
         }
     } else {
         YTAlertView *alertView = [%c(YTAlertView) infoDialog];
@@ -197,8 +231,8 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIViewController *playingVC) {
 }
 
 %new
-- (void)downloadAudio:(YTPlayerViewController *)playerVC {
-    YTPlayerResponse *playerResponse = findPlayerResponseInHierarchy((id)playerVC);
+- (void)downloadAudio:(UIView *)sourceView {
+    YTPlayerResponse *playerResponse = findActivePlayerResponse(sourceView);
     if (!playerResponse) return;
 
     YTIPlayerResponse *playerData = nil;
@@ -217,7 +251,7 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIViewController *playingVC) {
     NSString *title = [rawTitle stringByReplacingOccurrencesOfString:@"/" withString:@""];
     NSString *author = [rawAuthor stringByReplacingOccurrencesOfString:@"/" withString:@""];
     NSString *urlStr = [streamingData respondsToSelector:@selector(hlsManifestURL)] ? streamingData.hlsManifestURL : nil;
-    NSString *videoID = getContentVideoIDFromHierarchy((id)playerVC);
+    NSString *videoID = getContentVideoIDFromHierarchy(sourceView);
 
     FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
     ffmpeg.tempName = videoID;
@@ -225,7 +259,7 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIViewController *playingVC) {
     ffmpeg.videoId = videoID;
     ffmpeg.trackTitle = title;
     ffmpeg.trackAuthor = author;
-    ffmpeg.duration = round(getTotalMediaTimeFromHierarchy((id)playerVC));
+    ffmpeg.duration = round(getTotalMediaTimeFromHierarchy(sourceView));
 
     NSString *extractedURL = [self getURLFromManifest:[NSURL URLWithString:urlStr]];
     
@@ -281,13 +315,13 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIViewController *playingVC) {
 }
 
 %new
-- (void)downloadCoverImage:(YTPlayerViewController *)playerVC {
+- (void)downloadCoverImage:(UIView *)sourceView {
     MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
     dispatch_async(dispatch_get_main_queue(), ^{
         hud.mode = MBProgressHUDModeIndeterminate;
     });
 
-    YTPlayerResponse *playerResponse = findPlayerResponseInHierarchy((id)playerVC);
+    YTPlayerResponse *playerResponse = findActivePlayerResponse(sourceView);
     if (!playerResponse) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [hud hideAnimated:YES];
