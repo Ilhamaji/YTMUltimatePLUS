@@ -190,7 +190,8 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
     ELMNodeController *node = [self valueForKey:@"_controller"];
     UIGestureRecognizer *tapRecognizer = [self valueForKey:@"_tapRecognizer"];
 
-    if (![node.key isEqualToString:@"music_download_badge_1"]) {
+    BOOL isDownloadNode = [node.key containsString:@"download"] || [node.key containsString:@"offline"];
+    if (!isDownloadNode) {
         return %orig;
     }
 

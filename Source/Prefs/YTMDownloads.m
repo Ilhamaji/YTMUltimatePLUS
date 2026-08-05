@@ -46,7 +46,7 @@
     [self.view addSubview:self.miniPlayerView];
 
     [NSLayoutConstraint activateConstraints:@[
-        [self.tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [self.tableView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:44],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [self.tableView.bottomAnchor constraintEqualToAnchor:self.miniPlayerView.topAnchor],
@@ -284,6 +284,13 @@
     if (self.segmentedControl.selectedSegmentIndex == 0) {
         if (indexPath.section == 0) {
             if (indexPath.row >= self.audioFiles.count) return;
+
+            NSString *fileName = self.audioFiles[indexPath.row];
+            NSString *videoId = [YTMDownloadMetadata videoIdForFileName:fileName];
+
+            if (videoId && videoId.length > 0) {
+                [UIViewController ytm_playVideoWithID:videoId fromSender:[tableView cellForRowAtIndexPath:indexPath]];
+            }
 
             [[YTMOfflinePlayerManager sharedManager] playPlaylist:self.audioFiles startIndex:indexPath.row];
             if (self.miniPlayerView) {
