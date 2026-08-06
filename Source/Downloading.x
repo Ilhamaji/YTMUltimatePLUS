@@ -177,6 +177,112 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
 - (NSString *)getURLFromManifest:(NSURL *)manifest;
 @end
 
+static NSString *getPlaylistTitleFromHierarchy(UIView *sourceView) {
+    UIViewController *topVC = [sourceView respondsToSelector:@selector(_viewControllerForAncestor)] ? [sourceView _viewControllerForAncestor] : nil;
+    if (!topVC) {
+        topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+        while (topVC.presentedViewController) {
+            topVC = topVC.presentedViewController;
+        }
+    }
+    
+    if ([topVC respondsToSelector:@selector(title)] && topVC.title.length > 0) {
+        return topVC.title;
+    }
+    
+    NSMutableArray *queue = [NSMutableArray arrayWithObject:topVC.view ?: sourceView];
+    while (queue.count > 0) {
+        UIView *v = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        if ([v isKindOfClass:[UILabel class]]) {
+            UILabel *lbl = (UILabel *)v;
+            if (lbl.text.length > 0 && lbl.font.pointSize >= 18) {
+                return lbl.text;
+            }
+        }
+        for (UIView *sub in v.subviews) {
+            [queue addObject:sub];
+        }
+    }
+    return @"Downloaded Playlist";
+}
+
+static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
+    NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
+    NSMutableSet *visited = [NSMutableSet set];
+    
+    UIViewController *topVC = [sourceView respondsToSelector:@selector(_viewControllerForAncestor)] ? [sourceView _viewControllerForAncestor] : nil;
+    if (!topVC) {
+        topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+        while (topVC.presentedViewController) {
+            topVC = topVC.presentedViewController;
+        }
+    }
+    
+    UIView *mainView = topVC.view ?: sourceView;
+    if (!mainView) return tracks;
+    
+    NSMutableArray *queue = [NSMutableArray arrayWithObject:mainView];
+    while (queue.count > 0) {
+        UIView *v = queue.firstObject;
+        [queue removeObjectAtIndex:0];
+        if ([visited containsObject:v]) continue;
+        [visited addObject:v];
+        
+        id node = nil;
+        if (class_getInstanceVariable([v class], "_controller") != NULL) {
+            node = [v valueForKey:@"_controller"];
+        }
+        
+        id target = node ?: v;
+        for (NSString *key in @[@"model", @"entry", @"renderer", @"command", @"endpoint", @"watchEndpoint"]) {
+            if ([target respondsToSelector:NSSelectorFromString(key)]) {
+                id res = callObjectSelector(target, NSSelectorFromString(key));
+                if (res) {
+                    NSString *vId = nil;
+                    if ([res respondsToSelector:NSSelectorFromString(@"videoId")]) {
+                        vId = callObjectSelector(res, NSSelectorFromString(@"videoId"));
+                    } else if ([res respondsToSelector:NSSelectorFromString(@"watchEndpoint")]) {
+                        id wep = callObjectSelector(res, NSSelectorFromString(@"watchEndpoint"));
+                        if (wep && [wep respondsToSelector:NSSelectorFromString(@"videoId")]) {
+                            vId = callObjectSelector(wep, NSSelectorFromString(@"videoId"));
+                        }
+                    }
+                    
+                    if (vId && [vId isKindOfClass:[NSString class]] && vId.length > 0) {
+                        BOOL exists = NO;
+                        for (NSDictionary *d in tracks) {
+                            if ([d[@"videoId"] isEqualToString:vId]) {
+                                exists = YES;
+                                break;
+                            }
+                        }
+                        if (!exists) {
+                            NSString *trackTitle = @"Track";
+                            if ([res respondsToSelector:NSSelectorFromString(@"title")]) {
+                                id t = callObjectSelector(res, NSSelectorFromString(@"title"));
+                                if ([t isKindOfClass:[NSString class]]) trackTitle = t;
+                            }
+                            
+                            [tracks addObject:@{
+                                @"videoId": vId,
+                                @"title": trackTitle,
+                                @"sourceView": v
+                            }];
+                        }
+                    }
+                }
+            }
+        }
+        
+        for (UIView *sub in v.subviews) {
+            [queue addObject:sub];
+        }
+    }
+    
+    return tracks;
+}
+
 %hook ELMTouchCommandPropertiesHandler
 - (void)handleTap {
 
@@ -202,6 +308,12 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
         presentingVC = [UIApplication sharedApplication].keyWindow.rootViewController;
     }
 
+    BOOL isPlaylistDownload = [node.key containsString:@"playlist"] || [node.key containsString:@"header"];
+    if (isPlaylistDownload) {
+        [self downloadPlaylistTracks:(id)tapView];
+        return;
+    }
+
     YTPlayerResponse *playerResponse = findActivePlayerResponse(tapView);
 
     if (playerResponse) {
@@ -209,12 +321,9 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
         sheetController.sourceView = tapView;
         [sheetController addHeaderWithTitle:LOC(@"SELECT_ACTION") subtitle:nil];
 
-        BOOL isPlaylistDownload = [node.key containsString:@"playlist"] || [node.key containsString:@"header"];
-        if (isPlaylistDownload) {
-            [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:@"Download All Playlist Tracks" iconImage:[%c(YTUIResources) downloadOutline] style:0 handler:^ {
-                [self downloadPlaylistTracks:(id)tapView];
-            }]];
-        }
+        [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:@"Download All Playlist Tracks" iconImage:[%c(YTUIResources) downloadOutline] style:0 handler:^ {
+            [self downloadPlaylistTracks:(id)tapView];
+        }]];
 
         [sheetController addAction:[%c(YTActionSheetAction) actionWithTitle:LOC(@"DOWNLOAD_AUDIO") iconImage:[%c(YTUIResources) audioOutline] style:0 handler:^ {
             [self downloadAudio:(id)tapView];
@@ -245,13 +354,52 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
 
 %new
 - (void)downloadPlaylistTracks:(UIView *)sourceView {
+    NSArray<NSDictionary *> *tracks = extractPlaylistTracks(sourceView);
+    NSString *playlistName = getPlaylistTitleFromHierarchy(sourceView);
+    
     MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
-    hud.label.text = @"Downloading Playlist Tracks...";
+    hud.mode = MBProgressHUDModeIndeterminate;
+    
+    if (tracks.count == 0) {
+        hud.label.text = @"Downloading Track...";
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            [self downloadAudio:sourceView];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [hud hideAnimated:YES];
+            });
+        });
+        return;
+    }
+    
+    [YTMDownloadMetadata createPlaylistNamed:playlistName];
+    hud.label.text = [NSString stringWithFormat:@"Downloading Playlist (%lu tracks)...", (unsigned long)tracks.count];
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        [self downloadAudio:sourceView];
+        NSUInteger count = 0;
+        for (NSDictionary *dict in tracks) {
+            count++;
+            UIView *v = dict[@"sourceView"] ?: sourceView;
+            
+            dispatch_async(dispatch_get_main_queue(), ^{
+                hud.label.text = [NSString stringWithFormat:@"Downloading (%lu/%lu): %@", (unsigned long)count, (unsigned long)tracks.count, dict[@"title"]];
+            });
+            
+            [self downloadAudio:v];
+            
+            // Add downloaded track to metadata playlist
+            NSString *fileName = [NSString stringWithFormat:@"%@.m4a", dict[@"title"]];
+            [YTMDownloadMetadata addTrack:fileName toPlaylist:playlistName];
+        }
+        
         dispatch_async(dispatch_get_main_queue(), ^{
             [hud hideAnimated:YES];
+            
+            YTAlertView *alertView = [%c(YTAlertView) infoDialog];
+            alertView.title = @"Playlist Download Complete";
+            alertView.subtitle = [NSString stringWithFormat:@"Downloaded %lu tracks to '%@'", (unsigned long)tracks.count, playlistName];
+            [alertView show];
+            
+            [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadDataNotification" object:nil];
         });
     });
 }
