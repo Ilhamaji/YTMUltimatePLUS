@@ -4,8 +4,11 @@
 NSString * const YTMOfflinePlayerStateDidChangeNotification = @"YTMOfflinePlayerStateDidChangeNotification";
 NSString * const YTMOfflinePlayerTrackDidChangeNotification = @"YTMOfflinePlayerTrackDidChangeNotification";
 NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerTimeDidChangeNotification";
+NSString * const YTMU_PauseOnlinePlayerNotification = @"YTMU_PauseOnlinePlayerNotification";
+NSString * const YTMU_OnlinePlayerDidStartPlayingNotification = @"YTMU_OnlinePlayerDidStartPlayingNotification";
 
 @interface YTMOfflinePlayerManager ()
+@property (nonatomic, assign, readwrite) BOOL isOfflinePlayerActive;
 @property (nonatomic, strong, readwrite) NSArray<NSString *> *playlist;
 @property (nonatomic, assign, readwrite) NSInteger currentIndex;
 @property (nonatomic, strong, readwrite) NSString *currentFileName;
@@ -52,6 +55,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
         _isShuffleEnabled = NO;
         _shuffledIndices = [NSMutableArray array];
         _currentShufflePosition = 0;
+        _isOfflinePlayerActive = NO;
         
         [self setupRemoteCommandCenter];
         
@@ -59,8 +63,20 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
                                                  selector:@selector(handleItemDidPlayToEnd:)
                                                      name:AVPlayerItemDidPlayToEndTimeNotification
                                                    object:nil];
+                                                   
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(markOnlinePlayerActive)
+                                                     name:YTMU_OnlinePlayerDidStartPlayingNotification
+                                                   object:nil];
     }
     return self;
+}
+
+- (void)markOnlinePlayerActive {
+    self.isOfflinePlayerActive = NO;
+    if (self.isPlaying) {
+        [self pause];
+    }
 }
 
 - (void)dealloc {
@@ -80,6 +96,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 - (void)playPlaylist:(NSArray<NSString *> *)playlist startIndex:(NSInteger)index {
     if (!playlist || playlist.count == 0) return;
     
+    self.isOfflinePlayerActive = YES;
     self.playlist = [playlist copy];
     [self rebuildShuffleIndices];
     
@@ -113,6 +130,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 - (void)playTrackAtIndex:(NSInteger)index {
     if (index < 0 || index >= self.playlist.count) return;
     
+    self.isOfflinePlayerActive = YES;
     [self setupAudioSession];
     
     self.currentIndex = index;
@@ -135,7 +153,7 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
         self.player = [AVPlayer playerWithPlayerItem:playerItem];
     }
     
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"YTMU_PauseOnlinePlayerNotification" object:nil];
+    [[NSNotificationCenter defaultCenter] postNotificationName:YTMU_PauseOnlinePlayerNotification object:nil];
     
     [self addTimeObserver];
     [self.player play];
@@ -148,8 +166,10 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 }
 
 - (void)play {
+    self.isOfflinePlayerActive = YES;
     if (self.player) {
         [self setupAudioSession];
+        [[NSNotificationCenter defaultCenter] postNotificationName:YTMU_PauseOnlinePlayerNotification object:nil];
         [self.player play];
         self.isPlaying = YES;
         [self updateNowPlayingInfo];
@@ -386,31 +406,49 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
     MPRemoteCommandCenter *commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
     
     [commandCenter.playCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+        if (!self.isOfflinePlayerActive) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
         [self play];
         return MPRemoteCommandHandlerStatusSuccess;
     }];
     
     [commandCenter.pauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+        if (!self.isOfflinePlayerActive) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
         [self pause];
         return MPRemoteCommandHandlerStatusSuccess;
     }];
     
     [commandCenter.togglePlayPauseCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+        if (!self.isOfflinePlayerActive) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
         [self togglePlayPause];
         return MPRemoteCommandHandlerStatusSuccess;
     }];
     
     [commandCenter.nextTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+        if (!self.isOfflinePlayerActive) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
         [self playNext];
         return MPRemoteCommandHandlerStatusSuccess;
     }];
     
     [commandCenter.previousTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+        if (!self.isOfflinePlayerActive) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
         [self playPrevious];
         return MPRemoteCommandHandlerStatusSuccess;
     }];
     
     [commandCenter.changePlaybackPositionCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+        if (!self.isOfflinePlayerActive) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
         MPChangePlaybackPositionCommandEvent *positionEvent = (MPChangePlaybackPositionCommandEvent *)event;
         [self seekToTime:positionEvent.positionTime];
         return MPRemoteCommandHandlerStatusSuccess;
@@ -418,6 +456,8 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 }
 
 - (void)updateNowPlayingInfo {
+    if (!self.isOfflinePlayerActive) return;
+    
     NSMutableDictionary *nowPlayingInfo = [NSMutableDictionary dictionary];
     
     if (self.currentTitle) {

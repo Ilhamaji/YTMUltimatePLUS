@@ -15,9 +15,12 @@ typedef NS_ENUM(NSInteger, YTMOfflineRepeatMode) {
 extern NSString * const YTMOfflinePlayerStateDidChangeNotification;
 extern NSString * const YTMOfflinePlayerTrackDidChangeNotification;
 extern NSString * const YTMOfflinePlayerTimeDidChangeNotification;
+extern NSString * const YTMU_PauseOnlinePlayerNotification;
+extern NSString * const YTMU_OnlinePlayerDidStartPlayingNotification;
 
 @interface YTMOfflinePlayerManager : NSObject
 
+@property (nonatomic, assign, readonly) BOOL isOfflinePlayerActive;
 @property (nonatomic, strong, readonly) NSArray<NSString *> *playlist;
 @property (nonatomic, assign, readonly) NSInteger currentIndex;
 @property (nonatomic, strong, readonly) NSString *currentFileName;
@@ -44,6 +47,7 @@ extern NSString * const YTMOfflinePlayerTimeDidChangeNotification;
 - (void)toggleShuffle;
 - (void)cycleRepeatMode;
 - (void)updatePlaylist:(NSArray<NSString *> *)playlist;
+- (void)markOnlinePlayerActive;
 - (NSURL *)fileURLForAudioName:(NSString *)name;
 - (UIImage *)artworkForAudioName:(NSString *)name;
 

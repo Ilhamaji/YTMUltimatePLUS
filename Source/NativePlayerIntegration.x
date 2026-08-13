@@ -3,6 +3,7 @@
 #import "Headers/YTICommand.h"
 #import "Headers/YTPlayerResponse.h"
 #import "Utils/YTMDownloadMetadata.h"
+#import "Player/YTMOfflinePlayerManager.h"
 
 @interface YTIVideoDetails (YTM)
 @property (nonatomic, copy, readwrite) NSString *videoId;
@@ -35,6 +36,8 @@
 
 + (void)ytm_playVideoWithID:(NSString *)videoId fromSender:(id)sender {
     if (!videoId || videoId.length == 0) return;
+    
+    [[%c(YTMOfflinePlayerManager) sharedManager] markOnlinePlayerActive];
     
     YTIWatchEndpoint *watchEndpoint = [%c(YTIWatchEndpoint) new];
     watchEndpoint.videoId = videoId;
@@ -102,8 +105,14 @@
 %hook YTPlayerViewController
 - (void)viewDidLoad {
     %orig;
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(ytmu_pauseOnlinePlayer) name:@"YTMU_PauseOnlinePlayerNotification" object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(ytmu_pauseOnlinePlayer) name:YTMU_PauseOnlinePlayerNotification object:nil];
 }
+
+- (void)playbackController:(id)arg1 didActivateVideo:(id)arg2 withPlaybackData:(id)arg3 {
+    %orig;
+    [[%c(YTMOfflinePlayerManager) sharedManager] markOnlinePlayerActive];
+}
+
 %new
 - (void)ytmu_pauseOnlinePlayer {
     dispatch_async(dispatch_get_main_queue(), ^{
