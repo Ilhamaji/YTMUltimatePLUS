@@ -40,7 +40,7 @@
 
     [MobileFFmpegConfig setLogDelegate:self];
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        int returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i %@ -c copy %@", audioURL, destinationURL]];
+        int returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i \"%@\" -y -c copy \"%@\"", audioURL, destinationURL.path]];
         dispatch_async(dispatch_get_main_queue(), ^{
             if (returnCode == RETURN_CODE_SUCCESS) {
                 [self.hud hideAnimated:YES];
@@ -79,9 +79,64 @@
                 }
 
                 [[NSFileManager defaultManager] removeItemAtURL:destinationURL error:nil];
-            }
-        });
     });
+}
+
+- (BOOL)downloadAudioSynchronous:(NSString *)audioURL {
+    statistics = nil;
+    [MobileFFmpegConfig resetStatistics];
+
+    void (^setupUIBlock)(void) = ^{
+        [self setActive];
+        self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
+        self.hud.mode = MBProgressHUDModeAnnularDeterminate;
+        self.hud.label.text = LOC(@"DOWNLOADING");
+    };
+
+    if ([NSThread isMainThread]) {
+        setupUIBlock();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), setupUIBlock);
+    }
+
+    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+    NSURL *destinationURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.m4a", self.tempName]];
+    NSURL *outputURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@.m4a", self.mediaName]];
+    NSURL *folderURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
+    [[NSFileManager defaultManager] createDirectoryAtURL:folderURL withIntermediateDirectories:YES attributes:nil error:nil];
+    [[NSFileManager defaultManager] removeItemAtURL:destinationURL error:nil];
+
+    [MobileFFmpegConfig setLogDelegate:self];
+    
+    int returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i \"%@\" -y -c copy \"%@\"", audioURL, destinationURL.path]];
+
+    __block BOOL success = NO;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        if (returnCode == RETURN_CODE_SUCCESS) {
+            [self.hud hideAnimated:YES];
+            BOOL isMoved = [[NSFileManager defaultManager] moveItemAtURL:destinationURL toURL:outputURL error:nil];
+
+            if (isMoved) {
+                success = YES;
+                [YTMDownloadMetadata saveMetadataForFileName:[NSString stringWithFormat:@"%@.m4a", self.mediaName] videoId:self.videoId title:self.trackTitle author:self.trackAuthor];
+                [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadDataNotification" object:nil];
+                self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
+                self.hud.mode = MBProgressHUDModeCustomView;
+                self.hud.label.text = LOC(@"DONE");
+                self.hud.label.numberOfLines = 0;
+
+                UIImageView *checkmarkImageView = [[UIImageView alloc] initWithImage:[self imageWithSystemIconNamed:@"checkmark"]];
+                checkmarkImageView.contentMode = UIViewContentModeScaleAspectFit;
+                self.hud.customView = checkmarkImageView;
+
+                [self.hud hideAnimated:YES afterDelay:3.0];
+            }
+        } else {
+            [self.hud hideAnimated:YES];
+            [[NSFileManager defaultManager] removeItemAtURL:destinationURL error:nil];
+        }
+    });
+    return success;
 }
 
 - (void)logCallback:(long)executionId :(int)level :(NSString*)message {

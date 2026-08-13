@@ -161,6 +161,39 @@
 }
 %end
 
+%hook MPRemoteCommandTarget
+- (MPRemoteCommandHandlerStatus)invokeWithRemoteCommandEvent:(MPRemoteCommandEvent *)event {
+    id target = nil;
+    if ([self respondsToSelector:@selector(target)]) {
+        target = [self performSelector:@selector(target)];
+    } else if (class_getInstanceVariable([self class], "_target") != NULL) {
+        target = [self valueForKey:@"_target"];
+    }
+    
+    if (target && target != [%c(YTMOfflinePlayerManager) sharedManager]) {
+        if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
+    }
+    return %orig;
+}
+%end
+
+%hook MPRemoteCommand
+- (id)addTargetWithHandler:(MPRemoteCommandHandlerStatus (^)(MPRemoteCommandEvent *event))handler {
+    if (handler) {
+        MPRemoteCommandHandlerStatus (^guardedHandler)(MPRemoteCommandEvent *) = ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
+            if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) {
+                return MPRemoteCommandHandlerStatusNoSuchContent;
+            }
+            return handler(event);
+        };
+        return %orig(guardedHandler);
+    }
+    return %orig(handler);
+}
+%end
+
 %hook YTQueueController
 - (void)nextVideo {
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;

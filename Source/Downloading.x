@@ -644,20 +644,22 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         }
         
         if (downloadURL.length > 0) {
-            [ffmpeg downloadAudio:downloadURL];
+            BOOL downloaded = [ffmpeg downloadAudioSynchronous:downloadURL];
             
-            if (thumbnailURLStr.length > 0) {
-                NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnailURLStr]];
-                if (imageData) {
-                    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-                    NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@ - %@.png", author, title]];
-                    [imageData writeToURL:coverURL atomically:YES];
+            if (downloaded) {
+                if (thumbnailURLStr.length > 0) {
+                    NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnailURLStr]];
+                    if (imageData) {
+                        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+                        NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@ - %@.png", author, title]];
+                        [imageData writeToURL:coverURL atomically:YES];
+                    }
                 }
-            }
-            
-            NSString *fileName = [NSString stringWithFormat:@"%@ - %@.m4a", author, title];
-            if (playlistName.length > 0) {
-                [YTMDownloadMetadata addTrack:fileName toPlaylist:playlistName];
+                
+                NSString *fileName = [NSString stringWithFormat:@"%@ - %@.m4a", author, title];
+                if (playlistName.length > 0) {
+                    [YTMDownloadMetadata addTrack:fileName toPlaylist:playlistName];
+                }
             }
         }
         

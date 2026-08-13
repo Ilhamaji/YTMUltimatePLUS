@@ -16,6 +16,7 @@
 @property (nonatomic, strong) NSString *trackAuthor;
 @property (nonatomic) NSInteger duration;
 - (void)downloadAudio:(NSString *)audioURL;
+- (BOOL)downloadAudioSynchronous:(NSString *)audioURL;
 - (void)downloadImage:(NSURL *)link;
 - (void)shareMedia:(NSURL *)mediaURL;
 @end
