@@ -175,13 +175,16 @@ static NSDictionary *fetchPlayerResponseForVideoId(NSString *videoId) {
     request.HTTPMethod = @"POST";
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
-    [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1" forHTTPHeaderField:@"User-Agent"];
+    [request setValue:@"Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36" forHTTPHeaderField:@"User-Agent"];
     
     NSDictionary *bodyDict = @{
         @"context": @{
             @"client": @{
-                @"clientName": @"WEB_REMIX",
-                @"clientVersion": @"1.20231214.00.00"
+                @"clientName": @"ANDROID",
+                @"clientVersion": @"19.05.36",
+                @"androidSdkVersion": @30,
+                @"hl": @"en",
+                @"gl": @"US"
             }
         },
         @"videoId": videoId
@@ -208,6 +211,27 @@ static NSDictionary *fetchPlayerResponseForVideoId(NSString *videoId) {
     return resultDict;
 }
 
+static NSString *extractURLFromFormatDict(NSDictionary *fmt) {
+    if (![fmt isKindOfClass:[NSDictionary class]]) return nil;
+    
+    NSString *url = fmt[@"url"];
+    if ([url isKindOfClass:[NSString class]] && url.length > 0) return url;
+    
+    NSString *cipher = fmt[@"signatureCipher"] ?: fmt[@"cipher"];
+    if ([cipher isKindOfClass:[NSString class]] && cipher.length > 0) {
+        NSArray *components = [cipher componentsSeparatedByString:@"&"];
+        for (NSString *comp in components) {
+            if ([comp hasPrefix:@"url="]) {
+                NSString *encodedURL = [comp substringFromIndex:4];
+                NSString *decodedURL = [encodedURL stringByRemovingPercentEncoding];
+                if (decodedURL.length > 0) return decodedURL;
+            }
+        }
+    }
+    
+    return nil;
+}
+
 static NSString *extractAudioURLFromPlayerResponse(NSDictionary *json) {
     if (![json isKindOfClass:[NSDictionary class]]) return nil;
     
@@ -227,7 +251,7 @@ static NSString *extractAudioURLFromPlayerResponse(NSDictionary *json) {
         for (NSDictionary *fmt in adaptiveFormats) {
             if (![fmt isKindOfClass:[NSDictionary class]]) continue;
             NSString *mime = fmt[@"mimeType"];
-            NSString *urlStr = fmt[@"url"];
+            NSString *urlStr = extractURLFromFormatDict(fmt);
             
             if ([mime isKindOfClass:[NSString class]] && [mime containsString:@"audio/"] && [urlStr isKindOfClass:[NSString class]] && urlStr.length > 0) {
                 NSInteger bitrate = [fmt[@"bitrate"] integerValue];
@@ -245,7 +269,7 @@ static NSString *extractAudioURLFromPlayerResponse(NSDictionary *json) {
     if ([formats isKindOfClass:[NSArray class]]) {
         for (NSDictionary *fmt in formats) {
             if (![fmt isKindOfClass:[NSDictionary class]]) continue;
-            NSString *urlStr = fmt[@"url"];
+            NSString *urlStr = extractURLFromFormatDict(fmt);
             if ([urlStr isKindOfClass:[NSString class]] && urlStr.length > 0) {
                 return urlStr;
             }
@@ -364,6 +388,9 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     [visited addObject:ptrVal];
     
     if (visited.count > 1000) return;
+    
+    NSString *clsName = NSStringFromClass([obj class]);
+    if ([clsName containsString:@"Carousel"] || [clsName containsString:@"Recom"]) return;
     
     if ([obj isKindOfClass:[NSArray class]]) {
         for (id item in (NSArray *)obj) {
