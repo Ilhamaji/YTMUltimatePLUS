@@ -247,77 +247,181 @@ static NSString *getPlaylistTitleFromHierarchy(UIView *sourceView) {
     return @"Downloaded Playlist";
 }
 
-static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
-    NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
-    NSMutableSet *visited = [NSMutableSet set];
+static void extractVideoIdAndTitleFromObject(id obj, NSString **outVideoId, NSString **outTitle) {
+    if (!obj) return;
     
-    UIViewController *topVC = [sourceView respondsToSelector:@selector(_viewControllerForAncestor)] ? [sourceView _viewControllerForAncestor] : nil;
-    if (!topVC) {
-        topVC = [UIApplication sharedApplication].keyWindow.rootViewController;
-        while (topVC.presentedViewController) {
-            topVC = topVC.presentedViewController;
+    NSString *vId = nil;
+    NSString *tTitle = nil;
+    
+    if ([obj respondsToSelector:NSSelectorFromString(@"videoId")]) {
+        id v = callObjectSelector(obj, NSSelectorFromString(@"videoId"));
+        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) vId = v;
+    }
+    
+    for (NSString *epKey in @[@"watchEndpoint", @"navigationEndpoint", @"endpoint", @"command", @"serviceEndpoint"]) {
+        if (!vId && [obj respondsToSelector:NSSelectorFromString(epKey)]) {
+            id ep = callObjectSelector(obj, NSSelectorFromString(epKey));
+            if (ep) {
+                if ([ep respondsToSelector:NSSelectorFromString(@"videoId")]) {
+                    id v = callObjectSelector(ep, NSSelectorFromString(@"videoId"));
+                    if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) vId = v;
+                }
+                if (!vId && [ep respondsToSelector:NSSelectorFromString(@"watchEndpoint")]) {
+                    id wep = callObjectSelector(ep, NSSelectorFromString(@"watchEndpoint"));
+                    if (wep && [wep respondsToSelector:NSSelectorFromString(@"videoId")]) {
+                        id v = callObjectSelector(wep, NSSelectorFromString(@"videoId"));
+                        if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) vId = v;
+                    }
+                }
+            }
         }
     }
     
-    UIView *mainView = topVC.view ?: sourceView;
-    if (!mainView) return tracks;
-    
-    NSMutableArray *queue = [NSMutableArray arrayWithObject:mainView];
-    while (queue.count > 0) {
-        UIView *v = queue.firstObject;
-        [queue removeObjectAtIndex:0];
-        if ([visited containsObject:v]) continue;
-        [visited addObject:v];
-        
-        id node = nil;
-        if (class_getInstanceVariable([v class], "_controller") != NULL) {
-            node = [v valueForKey:@"_controller"];
+    for (NSString *renKey in @[@"playlistPanelVideoRenderer", @"musicResponsiveListItemRenderer", @"musicTwoRowItemRenderer", @"compactVideoRenderer"]) {
+        if (!vId && [obj respondsToSelector:NSSelectorFromString(renKey)]) {
+            id ren = callObjectSelector(obj, NSSelectorFromString(renKey));
+            if (ren) {
+                extractVideoIdAndTitleFromObject(ren, &vId, &tTitle);
+            }
         }
-        
-        id target = node ?: v;
-        for (NSString *key in @[@"model", @"entry", @"renderer", @"command", @"endpoint", @"watchEndpoint"]) {
-            if ([target respondsToSelector:NSSelectorFromString(key)]) {
-                id res = callObjectSelector(target, NSSelectorFromString(key));
-                if (res) {
-                    NSString *vId = nil;
-                    if ([res respondsToSelector:NSSelectorFromString(@"videoId")]) {
-                        vId = callObjectSelector(res, NSSelectorFromString(@"videoId"));
-                    } else if ([res respondsToSelector:NSSelectorFromString(@"watchEndpoint")]) {
-                        id wep = callObjectSelector(res, NSSelectorFromString(@"watchEndpoint"));
-                        if (wep && [wep respondsToSelector:NSSelectorFromString(@"videoId")]) {
-                            vId = callObjectSelector(wep, NSSelectorFromString(@"videoId"));
-                        }
-                    }
-                    
-                    if (vId && [vId isKindOfClass:[NSString class]] && vId.length > 0) {
-                        BOOL exists = NO;
-                        for (NSDictionary *d in tracks) {
-                            if ([d[@"videoId"] isEqualToString:vId]) {
-                                exists = YES;
-                                break;
-                            }
-                        }
-                        if (!exists) {
-                            NSString *trackTitle = @"Track";
-                            if ([res respondsToSelector:NSSelectorFromString(@"title")]) {
-                                id t = callObjectSelector(res, NSSelectorFromString(@"title"));
-                                if ([t isKindOfClass:[NSString class]]) trackTitle = t;
-                            }
-                            
-                            [tracks addObject:@{
-                                @"videoId": vId,
-                                @"title": trackTitle,
-                                @"sourceView": v
-                            }];
+    }
+    
+    if (vId) {
+        if ([obj respondsToSelector:NSSelectorFromString(@"title")]) {
+            id tObj = callObjectSelector(obj, NSSelectorFromString(@"title"));
+            if ([tObj isKindOfClass:[NSString class]]) {
+                tTitle = tObj;
+            } else if (tObj) {
+                if ([tObj respondsToSelector:NSSelectorFromString(@"runs")]) {
+                    NSArray *runs = callObjectSelector(tObj, NSSelectorFromString(@"runs"));
+                    if ([runs isKindOfClass:[NSArray class]] && runs.count > 0) {
+                        id firstRun = runs.firstObject;
+                        if ([firstRun respondsToSelector:NSSelectorFromString(@"text")]) {
+                            id txt = callObjectSelector(firstRun, NSSelectorFromString(@"text"));
+                            if ([txt isKindOfClass:[NSString class]]) tTitle = txt;
                         }
                     }
                 }
             }
         }
         
-        for (UIView *sub in v.subviews) {
-            [queue addObject:sub];
+        *outVideoId = vId;
+        if (tTitle && !*outTitle) *outTitle = tTitle;
+    }
+}
+
+static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *visited) {
+    if (!obj || [visited containsObject:obj]) return;
+    [visited addObject:obj];
+    
+    if ([obj isKindOfClass:[NSArray class]]) {
+        for (id item in (NSArray *)obj) {
+            scanObjectForTracks(item, tracks, visited);
         }
+        return;
+    }
+    
+    if ([obj isKindOfClass:[NSDictionary class]]) {
+        for (id val in [(NSDictionary *)obj allValues]) {
+            scanObjectForTracks(val, tracks, visited);
+        }
+        return;
+    }
+    
+    NSString *vId = nil;
+    NSString *tTitle = nil;
+    extractVideoIdAndTitleFromObject(obj, &vId, &tTitle);
+    if (vId && vId.length > 0) {
+        BOOL exists = NO;
+        for (NSDictionary *d in tracks) {
+            if ([d[@"videoId"] isEqualToString:vId]) {
+                exists = YES;
+                break;
+            }
+        }
+        if (!exists) {
+            [tracks addObject:@{
+                @"videoId": vId,
+                @"title": tTitle ?: @"Track"
+            }];
+        }
+    }
+    
+    if ([obj isKindOfClass:[UICollectionView class]]) {
+        UICollectionView *cv = (UICollectionView *)obj;
+        id ds = cv.dataSource;
+        if (ds && ds != cv) scanObjectForTracks(ds, tracks, visited);
+    } else if ([obj isKindOfClass:[UITableView class]]) {
+        UITableView *tv = (UITableView *)obj;
+        id ds = tv.dataSource;
+        if (ds && ds != tv) scanObjectForTracks(ds, tracks, visited);
+    }
+    
+    for (NSString *selName in @[@"contents", @"items", @"sections", @"renderers", @"model", @"entry", @"renderer", @"playlistPanel", @"watchNextResponse", @"sectionListRenderer", @"playlistPanelRenderer"]) {
+        SEL sel = NSSelectorFromString(selName);
+        if ([obj respondsToSelector:sel]) {
+            id child = callObjectSelector(obj, sel);
+            if (child) scanObjectForTracks(child, tracks, visited);
+        }
+    }
+    
+    Class cls = [obj class];
+    if (cls && [NSStringFromClass(cls) hasPrefix:@"YT"]) {
+        unsigned int ivarCount = 0;
+        Ivar *ivars = class_copyIvarList(cls, &ivarCount);
+        if (ivars) {
+            for (unsigned int i = 0; i < ivarCount && i < 30; i++) {
+                const char *name = ivarGetName(ivars[i]);
+                if (name) {
+                    NSString *ivarName = [NSString stringWithUTF8String:name];
+                    if ([ivarName containsString:@"model"] || [ivarName containsString:@"section"] || [ivarName containsString:@"item"] || [ivarName containsString:@"content"] || [ivarName containsString:@"entry"] || [ivarName containsString:@"array"] || [ivarName containsString:@"controller"] || [ivarName containsString:@"response"] || [ivarName containsString:@"data"]) {
+                        id val = object_getIvar(obj, ivars[i]);
+                        if (val) scanObjectForTracks(val, tracks, visited);
+                    }
+                }
+            }
+            free(ivars);
+        }
+    }
+    
+    if ([obj isKindOfClass:[UIViewController class]]) {
+        UIViewController *vc = (UIViewController *)obj;
+        if (vc.view) scanObjectForTracks(vc.view, tracks, visited);
+        for (UIViewController *child in vc.childViewControllers) {
+            scanObjectForTracks(child, tracks, visited);
+        }
+        if (vc.presentedViewController) scanObjectForTracks(vc.presentedViewController, tracks, visited);
+    } else if ([obj isKindOfClass:[UIView class]]) {
+        UIView *v = (UIView *)obj;
+        for (UIView *sub in v.subviews) {
+            scanObjectForTracks(sub, tracks, visited);
+        }
+    }
+}
+
+static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
+    NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
+    NSMutableSet *visited = [NSMutableSet set];
+    
+    if (sourceView) {
+        scanObjectForTracks(sourceView, tracks, visited);
+        if ([sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
+            UIViewController *anc = [sourceView _viewControllerForAncestor];
+            if (anc) scanObjectForTracks(anc, tracks, visited);
+        }
+    }
+    
+    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    if (window && window.rootViewController) {
+        UIViewController *topVC = window.rootViewController;
+        while (topVC.presentedViewController) {
+            topVC = topVC.presentedViewController;
+        }
+        scanObjectForTracks(topVC, tracks, visited);
+    }
+    
+    if (gActivePlayerVC) {
+        scanObjectForTracks(gActivePlayerVC, tracks, visited);
     }
     
     return tracks;
