@@ -17,13 +17,19 @@
 - (void)downloadAudio:(NSString *)audioURL {
     statistics = nil;
     [MobileFFmpegConfig resetStatistics];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self setActive];
-    });
 
-    self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
-    self.hud.mode = MBProgressHUDModeAnnularDeterminate;
-    self.hud.label.text = LOC(@"DOWNLOADING");
+    void (^setupUIBlock)(void) = ^{
+        [self setActive];
+        self.hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
+        self.hud.mode = MBProgressHUDModeAnnularDeterminate;
+        self.hud.label.text = LOC(@"DOWNLOADING");
+    };
+
+    if ([NSThread isMainThread]) {
+        setupUIBlock();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), setupUIBlock);
+    }
 
     NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
     NSURL *destinationURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.m4a", self.tempName]];
