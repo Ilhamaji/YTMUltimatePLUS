@@ -7,6 +7,8 @@ NSString * const YTMOfflinePlayerTimeDidChangeNotification = @"YTMOfflinePlayerT
 NSString * const YTMU_PauseOnlinePlayerNotification = @"YTMU_PauseOnlinePlayerNotification";
 NSString * const YTMU_OnlinePlayerDidStartPlayingNotification = @"YTMU_OnlinePlayerDidStartPlayingNotification";
 
+BOOL gIsOfflineUpdatingNowPlayingInfo = NO;
+
 @interface YTMOfflinePlayerManager ()
 @property (nonatomic, assign, readwrite) BOOL isOfflinePlayerActive;
 @property (nonatomic, strong, readwrite) NSArray<NSString *> *playlist;
@@ -478,6 +480,7 @@ NSString * const YTMU_OnlinePlayerDidStartPlayingNotification = @"YTMU_OnlinePla
 - (void)updateNowPlayingInfo {
     if (!self.isOfflinePlayerActive) return;
     
+    gIsOfflineUpdatingNowPlayingInfo = YES;
     NSMutableDictionary *nowPlayingInfo = [NSMutableDictionary dictionary];
     
     if (self.currentTitle) {
@@ -498,6 +501,7 @@ NSString * const YTMU_OnlinePlayerDidStartPlayingNotification = @"YTMU_OnlinePla
     nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = @(self.isPlaying ? 1.0 : 0.0);
     
     [MPNowPlayingInfoCenter defaultCenter].nowPlayingInfo = nowPlayingInfo;
+    gIsOfflineUpdatingNowPlayingInfo = NO;
 }
 
 @end

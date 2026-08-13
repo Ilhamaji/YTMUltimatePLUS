@@ -18,6 +18,8 @@ extern NSString * const YTMOfflinePlayerTimeDidChangeNotification;
 extern NSString * const YTMU_PauseOnlinePlayerNotification;
 extern NSString * const YTMU_OnlinePlayerDidStartPlayingNotification;
 
+extern BOOL gIsOfflineUpdatingNowPlayingInfo;
+
 @interface YTMOfflinePlayerManager : NSObject
 
 @property (nonatomic, assign, readonly) BOOL isOfflinePlayerActive;

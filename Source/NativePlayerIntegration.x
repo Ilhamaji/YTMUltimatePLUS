@@ -149,3 +149,55 @@
     });
 }
 %end
+
+%hook MPNowPlayingInfoCenter
+- (void)setNowPlayingInfo:(NSDictionary *)info {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) {
+        if (!gIsOfflineUpdatingNowPlayingInfo) {
+            return;
+        }
+    }
+    %orig;
+}
+%end
+
+%hook YTQueueController
+- (void)nextVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)previousVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)skipToNext {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)skipToPrevious {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+%end
+
+%hook YTLocalPlaybackController
+- (void)nextVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)previousVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+%end
+
+%hook YTSingleVideoController
+- (void)nextVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)previousVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+%end

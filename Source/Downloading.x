@@ -311,8 +311,12 @@ static void extractVideoIdAndTitleFromObject(id obj, NSString **outVideoId, NSSt
 }
 
 static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *visited) {
-    if (!obj || [visited containsObject:obj]) return;
-    [visited addObject:obj];
+    if (!obj) return;
+    NSValue *ptrVal = [NSValue valueWithNonretainedObject:obj];
+    if ([visited containsObject:ptrVal]) return;
+    [visited addObject:ptrVal];
+    
+    if (visited.count > 1000) return;
     
     if ([obj isKindOfClass:[NSArray class]]) {
         for (id item in (NSArray *)obj) {
@@ -357,7 +361,14 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         if (ds && ds != tv) scanObjectForTracks(ds, tracks, visited);
     }
     
-    for (NSString *selName in @[@"contents", @"items", @"sections", @"renderers", @"model", @"entry", @"renderer", @"playlistPanel", @"watchNextResponse", @"sectionListRenderer", @"playlistPanelRenderer"]) {
+    NSArray *selNames = @[
+        @"contents", @"items", @"sections", @"renderers", @"model", @"entry",
+        @"renderer", @"playlistPanel", @"watchNextResponse", @"sectionListRenderer",
+        @"playlistPanelRenderer", @"singleColumnWatchNextResults", @"results",
+        @"playlist", @"playlistVideoListRenderer", @"playlistPanelVideoRenderer",
+        @"musicResponsiveListItemRenderer", @"content"
+    ];
+    for (NSString *selName in selNames) {
         SEL sel = NSSelectorFromString(selName);
         if ([obj respondsToSelector:sel]) {
             id child = callObjectSelector(obj, sel);
@@ -365,37 +376,22 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         }
     }
     
-    Class cls = [obj class];
-    if (cls && [NSStringFromClass(cls) hasPrefix:@"YT"]) {
-        unsigned int ivarCount = 0;
-        Ivar *ivars = class_copyIvarList(cls, &ivarCount);
-        if (ivars) {
-            for (unsigned int i = 0; i < ivarCount && i < 30; i++) {
-                const char *name = ivar_getName(ivars[i]);
-                if (name) {
-                    NSString *ivarName = [NSString stringWithUTF8String:name];
-                    if ([ivarName containsString:@"model"] || [ivarName containsString:@"section"] || [ivarName containsString:@"item"] || [ivarName containsString:@"content"] || [ivarName containsString:@"entry"] || [ivarName containsString:@"array"] || [ivarName containsString:@"controller"] || [ivarName containsString:@"response"] || [ivarName containsString:@"data"]) {
-                        id val = object_getIvar(obj, ivars[i]);
-                        if (val) scanObjectForTracks(val, tracks, visited);
-                    }
-                }
-            }
-            free(ivars);
+    if ([obj isKindOfClass:[UIView class]]) {
+        UIView *v = (UIView *)obj;
+        if (class_getInstanceVariable([v class], "_controller") != NULL) {
+            id controller = [v valueForKey:@"_controller"];
+            if (controller) scanObjectForTracks(controller, tracks, visited);
         }
-    }
-    
-    if ([obj isKindOfClass:[UIViewController class]]) {
+        for (UIView *sub in v.subviews) {
+            scanObjectForTracks(sub, tracks, visited);
+        }
+    } else if ([obj isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)obj;
         if (vc.view) scanObjectForTracks(vc.view, tracks, visited);
         for (UIViewController *child in vc.childViewControllers) {
             scanObjectForTracks(child, tracks, visited);
         }
         if (vc.presentedViewController) scanObjectForTracks(vc.presentedViewController, tracks, visited);
-    } else if ([obj isKindOfClass:[UIView class]]) {
-        UIView *v = (UIView *)obj;
-        for (UIView *sub in v.subviews) {
-            scanObjectForTracks(sub, tracks, visited);
-        }
     }
 }
 
