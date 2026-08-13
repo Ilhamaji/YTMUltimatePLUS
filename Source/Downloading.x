@@ -387,10 +387,14 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     if ([visited containsObject:ptrVal]) return;
     [visited addObject:ptrVal];
     
-    if (visited.count > 1000) return;
+    if (visited.count > 2000) return;
+    
+    if (gActivePlayerVC && (obj == gActivePlayerVC || ([obj isKindOfClass:[UIView class]] && [(UIView *)obj isDescendantOfView:((UIViewController *)gActivePlayerVC).view]))) {
+        return;
+    }
     
     NSString *clsName = NSStringFromClass([obj class]);
-    if ([clsName containsString:@"Carousel"] || [clsName containsString:@"Recom"]) return;
+    if ([clsName containsString:@"Carousel"] || [clsName containsString:@"Recom"] || [clsName containsString:@"WatchNext"] || [clsName containsString:@"WatchPanel"]) return;
     
     if ([obj isKindOfClass:[NSArray class]]) {
         for (id item in (NSArray *)obj) {
@@ -461,8 +465,11 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         }
     } else if ([obj isKindOfClass:[UIViewController class]]) {
         UIViewController *vc = (UIViewController *)obj;
+        if (gActivePlayerVC && vc == gActivePlayerVC) return;
+        
         if (vc.view) scanObjectForTracks(vc.view, tracks, visited);
         for (UIViewController *child in vc.childViewControllers) {
+            if (gActivePlayerVC && child == gActivePlayerVC) continue;
             scanObjectForTracks(child, tracks, visited);
         }
         if (vc.presentedViewController) scanObjectForTracks(vc.presentedViewController, tracks, visited);
@@ -473,41 +480,26 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
     NSMutableSet *visited = [NSMutableSet set];
     
-    UIView *curr = sourceView;
-    UICollectionView *cv = nil;
-    UITableView *tv = nil;
-    
-    while (curr) {
-        if (curr == [UIApplication sharedApplication].keyWindow || curr == [UIApplication sharedApplication].keyWindow.rootViewController.view) {
-            break;
-        }
-        if ([curr isKindOfClass:[UICollectionView class]]) {
-            cv = (UICollectionView *)curr;
-            break;
-        }
-        if ([curr isKindOfClass:[UITableView class]]) {
-            tv = (UITableView *)curr;
-            break;
-        }
-        curr = curr.superview;
-    }
-    
-    if (cv) {
-        scanObjectForTracks(cv, tracks, visited);
-    } else if (tv) {
-        scanObjectForTracks(tv, tracks, visited);
-    }
-    
-    if (tracks.count == 0 && sourceView) {
-        scanObjectForTracks(sourceView, tracks, visited);
-    }
-    
-    if (tracks.count == 0 && sourceView) {
+    if (sourceView) {
         if ([sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
             UIViewController *anc = [sourceView _viewControllerForAncestor];
             if (anc) {
                 scanObjectForTracks(anc, tracks, visited);
             }
+        }
+        if (tracks.count == 0) {
+            scanObjectForTracks(sourceView, tracks, visited);
+        }
+    }
+    
+    if (tracks.count == 0) {
+        UIWindow *window = [UIApplication sharedApplication].keyWindow;
+        if (window && window.rootViewController) {
+            UIViewController *topVC = window.rootViewController;
+            while (topVC.presentedViewController) {
+                topVC = topVC.presentedViewController;
+            }
+            scanObjectForTracks(topVC, tracks, visited);
         }
     }
     
