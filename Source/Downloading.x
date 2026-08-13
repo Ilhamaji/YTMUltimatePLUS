@@ -473,30 +473,41 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
     NSMutableSet *visited = [NSMutableSet set];
     
-    if (sourceView) {
+    UIView *curr = sourceView;
+    UICollectionView *cv = nil;
+    UITableView *tv = nil;
+    
+    while (curr) {
+        if (curr == [UIApplication sharedApplication].keyWindow || curr == [UIApplication sharedApplication].keyWindow.rootViewController.view) {
+            break;
+        }
+        if ([curr isKindOfClass:[UICollectionView class]]) {
+            cv = (UICollectionView *)curr;
+            break;
+        }
+        if ([curr isKindOfClass:[UITableView class]]) {
+            tv = (UITableView *)curr;
+            break;
+        }
+        curr = curr.superview;
+    }
+    
+    if (cv) {
+        scanObjectForTracks(cv, tracks, visited);
+    } else if (tv) {
+        scanObjectForTracks(tv, tracks, visited);
+    }
+    
+    if (tracks.count == 0 && sourceView) {
+        scanObjectForTracks(sourceView, tracks, visited);
+    }
+    
+    if (tracks.count == 0 && sourceView) {
         if ([sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
             UIViewController *anc = [sourceView _viewControllerForAncestor];
             if (anc) {
                 scanObjectForTracks(anc, tracks, visited);
             }
-        }
-        if (tracks.count == 0) {
-            scanObjectForTracks(sourceView, tracks, visited);
-        }
-    }
-    
-    if (tracks.count == 0 && gActivePlayerVC) {
-        scanObjectForTracks(gActivePlayerVC, tracks, visited);
-    }
-    
-    if (tracks.count == 0) {
-        UIWindow *window = [UIApplication sharedApplication].keyWindow;
-        if (window && window.rootViewController) {
-            UIViewController *topVC = window.rootViewController;
-            while (topVC.presentedViewController) {
-                topVC = topVC.presentedViewController;
-            }
-            scanObjectForTracks(topVC, tracks, visited);
         }
     }
     

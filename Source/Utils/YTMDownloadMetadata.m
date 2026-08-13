@@ -27,6 +27,9 @@ static NSString * const kYTMPlaylistsKey = @"__playlists__";
 
 + (void)saveAll:(NSDictionary *)metadataDict {
     NSURL *fileURL = [self metadataFileURL];
+    NSURL *folderURL = [fileURL URLByDeletingLastPathComponent];
+    [[NSFileManager defaultManager] createDirectoryAtURL:folderURL withIntermediateDirectories:YES attributes:nil error:nil];
+    
     NSError *error = nil;
     NSData *data = [NSJSONSerialization dataWithJSONObject:metadataDict options:NSJSONWritingPrettyPrinted error:&error];
     if (data && !error) {

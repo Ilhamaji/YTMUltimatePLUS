@@ -149,6 +149,7 @@
 - (void)refreshAudioFiles {
     NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
     NSURL *downloadsURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
+    [[NSFileManager defaultManager] createDirectoryAtURL:downloadsURL withIntermediateDirectories:YES attributes:nil error:nil];
 
     NSError *error;
     NSArray *allFiles = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:downloadsURL.path error:&error];
