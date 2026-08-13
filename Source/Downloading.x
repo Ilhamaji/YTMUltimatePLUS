@@ -173,6 +173,7 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
 
 @interface ELMTouchCommandPropertiesHandler : NSObject
 - (void)downloadAudio:(id)sourceView;
+- (void)downloadAudioInternal:(id)sourceView completion:(void (^)(void))completion;
 - (void)downloadCoverImage:(id)sourceView;
 - (void)downloadPlaylistTracks:(id)sourceView;
 - (NSString *)getURLFromManifest:(NSURL *)manifest;
@@ -390,7 +391,11 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
                 hud.label.text = [NSString stringWithFormat:@"Downloading (%lu/%lu): %@", (unsigned long)count, (unsigned long)tracks.count, dict[@"title"]];
             });
             
-            [self downloadAudio:v];
+            dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+            [self downloadAudioInternal:v completion:^{
+                dispatch_semaphore_signal(sema);
+            }];
+            dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
             
             // Add downloaded track to metadata playlist
             NSString *fileName = [NSString stringWithFormat:@"%@.m4a", dict[@"title"]];
@@ -412,6 +417,11 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
 
 %new
 - (void)downloadAudio:(UIView *)sourceView {
+    [self downloadAudioInternal:sourceView completion:nil];
+}
+
+%new
+- (void)downloadAudioInternal:(UIView *)sourceView completion:(void (^)(void))completion {
     __block YTPlayerResponse *playerResponse = nil;
     __block NSString *title = @"Downloaded Track";
     __block NSString *author = @"YouTube Music";
@@ -461,7 +471,10 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         dispatch_sync(dispatch_get_main_queue(), extractMetadataBlock);
     }
 
-    if (!playerResponse) return;
+    if (!playerResponse) {
+        if (completion) completion();
+        return;
+    }
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
@@ -492,6 +505,10 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
                 alertView.subtitle = LOC(@"LINK_NOT_FOUND");
                 [alertView show];
             });
+        }
+        
+        if (completion) {
+            completion();
         }
     });
 }
