@@ -371,7 +371,7 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         Ivar *ivars = class_copyIvarList(cls, &ivarCount);
         if (ivars) {
             for (unsigned int i = 0; i < ivarCount && i < 30; i++) {
-                const char *name = ivarGetName(ivars[i]);
+                const char *name = ivar_getName(ivars[i]);
                 if (name) {
                     NSString *ivarName = [NSString stringWithUTF8String:name];
                     if ([ivarName containsString:@"model"] || [ivarName containsString:@"section"] || [ivarName containsString:@"item"] || [ivarName containsString:@"content"] || [ivarName containsString:@"entry"] || [ivarName containsString:@"array"] || [ivarName containsString:@"controller"] || [ivarName containsString:@"response"] || [ivarName containsString:@"data"]) {
