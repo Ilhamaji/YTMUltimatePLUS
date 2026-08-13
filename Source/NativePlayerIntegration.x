@@ -2,8 +2,13 @@
 #import <UIKit/UIKit.h>
 #import "Headers/YTICommand.h"
 #import "Headers/YTPlayerResponse.h"
+#import "Headers/YTPlayerViewController.h"
 #import "Utils/YTMDownloadMetadata.h"
 #import "Player/YTMOfflinePlayerManager.h"
+
+@interface YTPlayerViewController (YTMU)
+- (void)ytmu_pauseOnlinePlayer;
+@end
 
 @interface YTIVideoDetails (YTM)
 @property (nonatomic, copy, readwrite) NSString *videoId;
@@ -126,7 +131,7 @@
 - (void)playbackController:(id)arg1 didActivateVideo:(id)arg2 withPlaybackData:(id)arg3 {
     %orig;
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) {
-        [self ytmu_pauseOnlinePlayer];
+        [(id)self ytmu_pauseOnlinePlayer];
     } else {
         [[%c(YTMOfflinePlayerManager) sharedManager] markOnlinePlayerActive];
     }
