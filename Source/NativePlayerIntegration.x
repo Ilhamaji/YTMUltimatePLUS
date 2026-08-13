@@ -163,11 +163,12 @@
 
 %hook MPRemoteCommandTarget
 - (MPRemoteCommandHandlerStatus)invokeWithRemoteCommandEvent:(MPRemoteCommandEvent *)event {
+    id selfObj = (id)self;
     id target = nil;
-    if ([self respondsToSelector:@selector(target)]) {
-        target = [self performSelector:@selector(target)];
-    } else if (class_getInstanceVariable([self class], "_target") != NULL) {
-        target = [self valueForKey:@"_target"];
+    if ([selfObj respondsToSelector:@selector(target)]) {
+        target = [selfObj performSelector:@selector(target)];
+    } else if (class_getInstanceVariable([selfObj class], "_target") != NULL) {
+        target = [selfObj valueForKey:@"_target"];
     }
     
     if (target && target != [%c(YTMOfflinePlayerManager) sharedManager]) {
