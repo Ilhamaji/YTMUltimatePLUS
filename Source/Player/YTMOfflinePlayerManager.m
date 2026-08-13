@@ -453,6 +453,26 @@ NSString * const YTMU_OnlinePlayerDidStartPlayingNotification = @"YTMU_OnlinePla
         [self seekToTime:positionEvent.positionTime];
         return MPRemoteCommandHandlerStatusSuccess;
     }];
+    
+    [commandCenter.skipForwardCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+        if (!self.isOfflinePlayerActive) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
+        MPSkipIntervalCommandEvent *skipEvent = (MPSkipIntervalCommandEvent *)event;
+        NSTimeInterval interval = (skipEvent && skipEvent.interval > 0) ? skipEvent.interval : 15.0;
+        [self seekToTime:self.currentTime + interval];
+        return MPRemoteCommandHandlerStatusSuccess;
+    }];
+    
+    [commandCenter.skipBackwardCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent * _Nonnull event) {
+        if (!self.isOfflinePlayerActive) {
+            return MPRemoteCommandHandlerStatusNoSuchContent;
+        }
+        MPSkipIntervalCommandEvent *skipEvent = (MPSkipIntervalCommandEvent *)event;
+        NSTimeInterval interval = (skipEvent && skipEvent.interval > 0) ? skipEvent.interval : 15.0;
+        [self seekToTime:MAX(0, self.currentTime - interval)];
+        return MPRemoteCommandHandlerStatusSuccess;
+    }];
 }
 
 - (void)updateNowPlayingInfo {

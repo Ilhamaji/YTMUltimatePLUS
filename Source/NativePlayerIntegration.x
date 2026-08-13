@@ -67,6 +67,21 @@
 
 @end
 
+%hook UIViewController
+- (void)handleCommand:(id)command sender:(id)sender {
+    if (command && [command respondsToSelector:@selector(watchEndpoint)] && [command performSelector:@selector(watchEndpoint)] != nil) {
+        [[%c(YTMOfflinePlayerManager) sharedManager] markOnlinePlayerActive];
+    }
+    %orig;
+}
+- (void)handleCommand:(id)command {
+    if (command && [command respondsToSelector:@selector(watchEndpoint)] && [command performSelector:@selector(watchEndpoint)] != nil) {
+        [[%c(YTMOfflinePlayerManager) sharedManager] markOnlinePlayerActive];
+    }
+    %orig;
+}
+%end
+
 %hook YTPlayerResponse
 - (YTIStreamingData *)streamingData {
     YTIStreamingData *sd = %orig;
@@ -110,7 +125,11 @@
 
 - (void)playbackController:(id)arg1 didActivateVideo:(id)arg2 withPlaybackData:(id)arg3 {
     %orig;
-    [[%c(YTMOfflinePlayerManager) sharedManager] markOnlinePlayerActive];
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) {
+        [self ytmu_pauseOnlinePlayer];
+    } else {
+        [[%c(YTMOfflinePlayerManager) sharedManager] markOnlinePlayerActive];
+    }
 }
 
 %new

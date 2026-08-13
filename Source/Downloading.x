@@ -355,6 +355,13 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
 
 %new
 - (void)downloadPlaylistTracks:(UIView *)sourceView {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self downloadPlaylistTracks:sourceView];
+        });
+        return;
+    }
+    
     NSArray<NSDictionary *> *tracks = extractPlaylistTracks(sourceView);
     NSString *playlistName = getPlaylistTitleFromHierarchy(sourceView);
     
@@ -363,11 +370,9 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     
     if (tracks.count == 0) {
         hud.label.text = @"Downloading Track...";
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            [self downloadAudio:sourceView];
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [hud hideAnimated:YES];
-            });
+        [self downloadAudio:sourceView];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [hud hideAnimated:YES];
         });
         return;
     }
@@ -407,39 +412,36 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
 
 %new
 - (void)downloadAudio:(UIView *)sourceView {
-    YTPlayerResponse *playerResponse = findActivePlayerResponse(sourceView);
-    if (!playerResponse) return;
+    __block YTPlayerResponse *playerResponse = nil;
+    __block NSString *title = @"Downloaded Track";
+    __block NSString *author = @"YouTube Music";
+    __block NSString *urlStr = nil;
+    __block NSString *videoID = nil;
+    __block CGFloat duration = 0;
+    __block NSString *thumbnailURLStr = nil;
 
-    YTIPlayerResponse *playerData = nil;
-    if ([playerResponse respondsToSelector:@selector(playerData)]) {
-        playerData = callObjectSelector(playerResponse, @selector(playerData));
-    } else {
-        playerData = (id)playerResponse;
-    }
-    
-    YTIVideoDetails *videoDetails = callObjectSelector(playerData, NSSelectorFromString(@"videoDetails"));
-    YTIStreamingData *streamingData = callObjectSelector(playerData, NSSelectorFromString(@"streamingData"));
-    
-    NSString *rawTitle = [videoDetails respondsToSelector:@selector(title)] ? videoDetails.title : @"Downloaded Track";
-    NSString *rawAuthor = [videoDetails respondsToSelector:@selector(author)] ? videoDetails.author : @"YouTube Music";
-    
-    NSString *title = [rawTitle stringByReplacingOccurrencesOfString:@"/" withString:@""];
-    NSString *author = [rawAuthor stringByReplacingOccurrencesOfString:@"/" withString:@""];
-    NSString *urlStr = [streamingData respondsToSelector:@selector(hlsManifestURL)] ? streamingData.hlsManifestURL : nil;
-    NSString *videoID = getContentVideoIDFromHierarchy(sourceView);
+    void (^extractMetadataBlock)(void) = ^{
+        playerResponse = findActivePlayerResponse(sourceView);
+        if (!playerResponse) return;
 
-    FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
-    ffmpeg.tempName = videoID;
-    ffmpeg.mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
-    ffmpeg.videoId = videoID;
-    ffmpeg.trackTitle = title;
-    ffmpeg.trackAuthor = author;
-    ffmpeg.duration = round(getTotalMediaTimeFromHierarchy(sourceView));
-
-    NSString *extractedURL = [self getURLFromManifest:[NSURL URLWithString:urlStr]];
-    
-    if (extractedURL.length > 0) {
-        [ffmpeg downloadAudio:extractedURL];
+        YTIPlayerResponse *playerData = nil;
+        if ([playerResponse respondsToSelector:@selector(playerData)]) {
+            playerData = callObjectSelector(playerResponse, @selector(playerData));
+        } else {
+            playerData = (id)playerResponse;
+        }
+        
+        YTIVideoDetails *videoDetails = callObjectSelector(playerData, NSSelectorFromString(@"videoDetails"));
+        YTIStreamingData *streamingData = callObjectSelector(playerData, NSSelectorFromString(@"streamingData"));
+        
+        NSString *rawTitle = [videoDetails respondsToSelector:@selector(title)] ? videoDetails.title : @"Downloaded Track";
+        NSString *rawAuthor = [videoDetails respondsToSelector:@selector(author)] ? videoDetails.author : @"YouTube Music";
+        
+        title = [rawTitle stringByReplacingOccurrencesOfString:@"/" withString:@""];
+        author = [rawAuthor stringByReplacingOccurrencesOfString:@"/" withString:@""];
+        urlStr = [streamingData respondsToSelector:@selector(hlsManifestURL)] ? streamingData.hlsManifestURL : nil;
+        videoID = getContentVideoIDFromHierarchy(sourceView);
+        duration = getTotalMediaTimeFromHierarchy(sourceView);
 
         if ([videoDetails respondsToSelector:@selector(thumbnail)]) {
             YTIThumbnailDetails *thumbnailDetails = videoDetails.thumbnail;
@@ -447,21 +449,51 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
                 NSMutableArray *thumbnailsArray = [thumbnailDetails performSelector:@selector(thumbnailsArray)];
                 YTIThumbnailDetails_Thumbnail *thumbnail = [thumbnailsArray lastObject];
                 if (thumbnail && thumbnail.URL) {
-                    NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnail.URL]];
-                    if (imageData) {
-                        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-                        NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@ - %@.png", author, title]];
-                        [imageData writeToURL:coverURL atomically:YES];
-                    }
+                    thumbnailURLStr = thumbnail.URL;
                 }
             }
         }
+    };
+
+    if ([NSThread isMainThread]) {
+        extractMetadataBlock();
     } else {
-        YTAlertView *alertView = [%c(YTAlertView) infoDialog];
-        alertView.title = LOC(@"OOPS");
-        alertView.subtitle = LOC(@"LINK_NOT_FOUND");
-        [alertView show];
+        dispatch_sync(dispatch_get_main_queue(), extractMetadataBlock);
     }
+
+    if (!playerResponse) return;
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
+        ffmpeg.tempName = videoID;
+        ffmpeg.mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
+        ffmpeg.videoId = videoID;
+        ffmpeg.trackTitle = title;
+        ffmpeg.trackAuthor = author;
+        ffmpeg.duration = round(duration);
+
+        NSString *extractedURL = [self getURLFromManifest:[NSURL URLWithString:urlStr]];
+        
+        if (extractedURL.length > 0) {
+            [ffmpeg downloadAudio:extractedURL];
+
+            if (thumbnailURLStr.length > 0) {
+                NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnailURLStr]];
+                if (imageData) {
+                    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+                    NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@ - %@.png", author, title]];
+                    [imageData writeToURL:coverURL atomically:YES];
+                }
+            }
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                YTAlertView *alertView = [%c(YTAlertView) infoDialog];
+                alertView.title = LOC(@"OOPS");
+                alertView.subtitle = LOC(@"LINK_NOT_FOUND");
+                [alertView show];
+            });
+        }
+    });
 }
 
 %new
@@ -491,16 +523,19 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
 
 %new
 - (void)downloadCoverImage:(UIView *)sourceView {
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self downloadCoverImage:sourceView];
+        });
+        return;
+    }
+    
     MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        hud.mode = MBProgressHUDModeIndeterminate;
-    });
+    hud.mode = MBProgressHUDModeIndeterminate;
 
     YTPlayerResponse *playerResponse = findActivePlayerResponse(sourceView);
     if (!playerResponse) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [hud hideAnimated:YES];
-        });
+        [hud hideAnimated:YES];
         return;
     }
 
@@ -513,22 +548,28 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     
     YTIVideoDetails *videoDetails = callObjectSelector(playerData, NSSelectorFromString(@"videoDetails"));
 
+    NSString *thumbnailURL = nil;
     if ([videoDetails respondsToSelector:@selector(thumbnail)]) {
         YTIThumbnailDetails *thumbnailDetails = videoDetails.thumbnail;
         if ([thumbnailDetails respondsToSelector:@selector(thumbnailsArray)]) {
             NSMutableArray *thumbnailsArray = [thumbnailDetails performSelector:@selector(thumbnailsArray)];
             YTIThumbnailDetails_Thumbnail *thumbnail = [thumbnailsArray lastObject];
             if (thumbnail && thumbnail.URL) {
-                NSString *thumbnailURL = [thumbnail.URL stringByReplacingOccurrencesOfString:[NSString stringWithFormat:@"w%u-h%u-", thumbnail.width, thumbnail.width] withString:@"w2048-h2048-"];
-
-                FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
-                [ffmpeg downloadImage:[NSURL URLWithString:thumbnailURL]];
+                thumbnailURL = [thumbnail.URL stringByReplacingOccurrencesOfString:[NSString stringWithFormat:@"w%u-h%u-", thumbnail.width, thumbnail.width] withString:@"w2048-h2048-"];
             }
         }
     }
 
-    dispatch_async(dispatch_get_main_queue(), ^{
+    if (thumbnailURL.length > 0) {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
+            [ffmpeg downloadImage:[NSURL URLWithString:thumbnailURL]];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [hud hideAnimated:YES];
+            });
+        });
+    } else {
         [hud hideAnimated:YES];
-    });
+    }
 }
 %end
