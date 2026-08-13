@@ -208,6 +208,53 @@ static NSDictionary *fetchPlayerResponseForVideoId(NSString *videoId) {
     return resultDict;
 }
 
+static NSString *extractAudioURLFromPlayerResponse(NSDictionary *json) {
+    if (![json isKindOfClass:[NSDictionary class]]) return nil;
+    
+    NSDictionary *streamingData = json[@"streamingData"];
+    if (![streamingData isKindOfClass:[NSDictionary class]]) return nil;
+    
+    NSString *hls = streamingData[@"hlsManifestURL"];
+    if ([hls isKindOfClass:[NSString class]] && hls.length > 0) {
+        return hls;
+    }
+    
+    NSArray *adaptiveFormats = streamingData[@"adaptiveFormats"];
+    if ([adaptiveFormats isKindOfClass:[NSArray class]]) {
+        NSString *bestAudioURL = nil;
+        NSInteger highestBitrate = 0;
+        
+        for (NSDictionary *fmt in adaptiveFormats) {
+            if (![fmt isKindOfClass:[NSDictionary class]]) continue;
+            NSString *mime = fmt[@"mimeType"];
+            NSString *urlStr = fmt[@"url"];
+            
+            if ([mime isKindOfClass:[NSString class]] && [mime containsString:@"audio/"] && [urlStr isKindOfClass:[NSString class]] && urlStr.length > 0) {
+                NSInteger bitrate = [fmt[@"bitrate"] integerValue];
+                if (bitrate > highestBitrate || !bestAudioURL) {
+                    highestBitrate = bitrate;
+                    bestAudioURL = urlStr;
+                }
+            }
+        }
+        
+        if (bestAudioURL) return bestAudioURL;
+    }
+    
+    NSArray *formats = streamingData[@"formats"];
+    if ([formats isKindOfClass:[NSArray class]]) {
+        for (NSDictionary *fmt in formats) {
+            if (![fmt isKindOfClass:[NSDictionary class]]) continue;
+            NSString *urlStr = fmt[@"url"];
+            if ([urlStr isKindOfClass:[NSString class]] && urlStr.length > 0) {
+                return urlStr;
+            }
+        }
+    }
+    
+    return nil;
+}
+
 @interface ELMTouchCommandPropertiesHandler : NSObject
 - (void)downloadAudio:(id)sourceView;
 - (void)downloadAudioInternal:(id)sourceView completion:(void (^)(void))completion;
@@ -400,24 +447,30 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     NSMutableSet *visited = [NSMutableSet set];
     
     if (sourceView) {
-        scanObjectForTracks(sourceView, tracks, visited);
         if ([sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
             UIViewController *anc = [sourceView _viewControllerForAncestor];
-            if (anc) scanObjectForTracks(anc, tracks, visited);
+            if (anc) {
+                scanObjectForTracks(anc, tracks, visited);
+            }
+        }
+        if (tracks.count == 0) {
+            scanObjectForTracks(sourceView, tracks, visited);
         }
     }
     
-    UIWindow *window = [UIApplication sharedApplication].keyWindow;
-    if (window && window.rootViewController) {
-        UIViewController *topVC = window.rootViewController;
-        while (topVC.presentedViewController) {
-            topVC = topVC.presentedViewController;
-        }
-        scanObjectForTracks(topVC, tracks, visited);
-    }
-    
-    if (gActivePlayerVC) {
+    if (tracks.count == 0 && gActivePlayerVC) {
         scanObjectForTracks(gActivePlayerVC, tracks, visited);
+    }
+    
+    if (tracks.count == 0) {
+        UIWindow *window = [UIApplication sharedApplication].keyWindow;
+        if (window && window.rootViewController) {
+            UIViewController *topVC = window.rootViewController;
+            while (topVC.presentedViewController) {
+                topVC = topVC.presentedViewController;
+            }
+            scanObjectForTracks(topVC, tracks, visited);
+        }
     }
     
     return tracks;
@@ -555,9 +608,13 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSDictionary *json = fetchPlayerResponseForVideoId(videoId);
         
-        NSString *urlStr = json[@"streamingData"][@"hlsManifestURL"];
-        NSDictionary *videoDetails = json[@"videoDetails"];
+        NSString *audioURL = extractAudioURLFromPlayerResponse(json);
+        if (!audioURL || audioURL.length == 0) {
+            if (completion) completion();
+            return;
+        }
         
+        NSDictionary *videoDetails = json[@"videoDetails"];
         NSString *rawTitle = videoDetails[@"title"] ?: suggestedTitle ?: @"Downloaded Track";
         NSString *rawAuthor = videoDetails[@"author"] ?: @"YouTube Music";
         
@@ -579,9 +636,15 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         ffmpeg.trackAuthor = author;
         ffmpeg.duration = round(duration);
         
-        NSString *extractedURL = [self getURLFromManifest:[NSURL URLWithString:urlStr]];
-        if (extractedURL.length > 0) {
-            [ffmpeg downloadAudio:extractedURL];
+        NSString *downloadURL = nil;
+        if ([audioURL containsString:@"m3u8"] || [audioURL containsString:@"manifest"]) {
+            downloadURL = [self getURLFromManifest:[NSURL URLWithString:audioURL]];
+        } else {
+            downloadURL = audioURL;
+        }
+        
+        if (downloadURL.length > 0) {
+            [ffmpeg downloadAudio:downloadURL];
             
             if (thumbnailURLStr.length > 0) {
                 NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnailURLStr]];

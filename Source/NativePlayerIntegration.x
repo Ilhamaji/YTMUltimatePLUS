@@ -178,6 +178,14 @@
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
     %orig;
 }
+- (void)playNextVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)playPreviousVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
 %end
 
 %hook YTLocalPlaybackController
@@ -186,6 +194,14 @@
     %orig;
 }
 - (void)previousVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)playNextVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)playPreviousVideo {
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
     %orig;
 }
@@ -198,6 +214,50 @@
 }
 - (void)previousVideo {
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+%end
+
+%hook YTPlayerViewController
+- (void)nextVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)previousVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+%end
+
+%hook YTRemoteControlCenter
+- (id)handleNextCommand:(id)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
+    return %orig;
+}
+- (id)handlePreviousCommand:(id)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
+    return %orig;
+}
+%end
+
+%hook YTSystemMediaControlHandler
+- (id)handleNextTrackCommand:(id)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
+    return %orig;
+}
+- (id)handlePreviousTrackCommand:(id)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
+    return %orig;
+}
+%end
+
+%hook UIResponder
+- (void)remoteControlReceivedWithEvent:(UIEvent *)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) {
+        if (![self isKindOfClass:[%c(YTMOfflinePlayerManager) class]]) {
+            return;
+        }
+    }
     %orig;
 }
 %end
