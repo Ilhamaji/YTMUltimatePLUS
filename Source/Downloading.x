@@ -167,13 +167,51 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
     return 0;
 }
 
-@interface UIView ()
-- (UIViewController *)_viewControllerForAncestor;
-@end
+static NSDictionary *fetchPlayerResponseForVideoId(NSString *videoId) {
+    if (!videoId || videoId.length == 0) return nil;
+    
+    NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/player"];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
+    [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1" forHTTPHeaderField:@"User-Agent"];
+    
+    NSDictionary *bodyDict = @{
+        @"context": @{
+            @"client": @{
+                @"clientName": @"WEB_REMIX",
+                @"clientVersion": @"1.20231214.00.00"
+            }
+        },
+        @"videoId": videoId
+    };
+    
+    NSData *bodyData = [NSJSONSerialization dataWithJSONObject:bodyDict options:0 error:nil];
+    request.HTTPBody = bodyData;
+    
+    dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+    __block NSDictionary *resultDict = nil;
+    
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!error && data) {
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            if ([json isKindOfClass:[NSDictionary class]]) {
+                resultDict = json;
+            }
+        }
+        dispatch_semaphore_signal(sema);
+    }];
+    [task resume];
+    dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)));
+    
+    return resultDict;
+}
 
 @interface ELMTouchCommandPropertiesHandler : NSObject
 - (void)downloadAudio:(id)sourceView;
 - (void)downloadAudioInternal:(id)sourceView completion:(void (^)(void))completion;
+- (void)downloadTrackWithVideoId:(NSString *)videoId title:(NSString *)suggestedTitle playlistName:(NSString *)playlistName completion:(void (^)(void))completion;
 - (void)downloadCoverImage:(id)sourceView;
 - (void)downloadPlaylistTracks:(id)sourceView;
 - (NSString *)getURLFromManifest:(NSURL *)manifest;
@@ -385,21 +423,18 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         NSUInteger count = 0;
         for (NSDictionary *dict in tracks) {
             count++;
-            UIView *v = dict[@"sourceView"] ?: sourceView;
+            NSString *vId = dict[@"videoId"];
+            NSString *tTitle = dict[@"title"];
             
             dispatch_async(dispatch_get_main_queue(), ^{
-                hud.label.text = [NSString stringWithFormat:@"Downloading (%lu/%lu): %@", (unsigned long)count, (unsigned long)tracks.count, dict[@"title"]];
+                hud.label.text = [NSString stringWithFormat:@"Downloading (%lu/%lu): %@", (unsigned long)count, (unsigned long)tracks.count, tTitle ?: @"Track"];
             });
             
             dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-            [self downloadAudioInternal:v completion:^{
+            [self downloadTrackWithVideoId:vId title:tTitle playlistName:playlistName completion:^{
                 dispatch_semaphore_signal(sema);
             }];
             dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
-            
-            // Add downloaded track to metadata playlist
-            NSString *fileName = [NSString stringWithFormat:@"%@.m4a", dict[@"title"]];
-            [YTMDownloadMetadata addTrack:fileName toPlaylist:playlistName];
         }
         
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -412,6 +447,60 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
             
             [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadDataNotification" object:nil];
         });
+    });
+}
+
+%new
+- (void)downloadTrackWithVideoId:(NSString *)videoId title:(NSString *)suggestedTitle playlistName:(NSString *)playlistName completion:(void (^)(void))completion {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSDictionary *json = fetchPlayerResponseForVideoId(videoId);
+        
+        NSString *urlStr = json[@"streamingData"][@"hlsManifestURL"];
+        NSDictionary *videoDetails = json[@"videoDetails"];
+        
+        NSString *rawTitle = videoDetails[@"title"] ?: suggestedTitle ?: @"Downloaded Track";
+        NSString *rawAuthor = videoDetails[@"author"] ?: @"YouTube Music";
+        
+        NSString *title = [rawTitle stringByReplacingOccurrencesOfString:@"/" withString:@""];
+        NSString *author = [rawAuthor stringByReplacingOccurrencesOfString:@"/" withString:@""];
+        CGFloat duration = [videoDetails[@"lengthSeconds"] doubleValue];
+        
+        NSString *thumbnailURLStr = nil;
+        NSArray *thumbnails = videoDetails[@"thumbnail"][@"thumbnails"];
+        if ([thumbnails isKindOfClass:[NSArray class]] && thumbnails.count > 0) {
+            thumbnailURLStr = [thumbnails lastObject][@"url"];
+        }
+        
+        FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
+        ffmpeg.tempName = videoId;
+        ffmpeg.mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
+        ffmpeg.videoId = videoId;
+        ffmpeg.trackTitle = title;
+        ffmpeg.trackAuthor = author;
+        ffmpeg.duration = round(duration);
+        
+        NSString *extractedURL = [self getURLFromManifest:[NSURL URLWithString:urlStr]];
+        if (extractedURL.length > 0) {
+            [ffmpeg downloadAudio:extractedURL];
+            
+            if (thumbnailURLStr.length > 0) {
+                NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnailURLStr]];
+                if (imageData) {
+                    NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+                    NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@ - %@.png", author, title]];
+                    [imageData writeToURL:coverURL atomically:YES];
+                }
+            }
+            
+            NSString *fileName = [NSString stringWithFormat:@"%@ - %@.m4a", author, title];
+            if (playlistName.length > 0) {
+                [YTMDownloadMetadata addTrack:fileName toPlaylist:playlistName];
+            }
+        }
+        
+        if (completion) {
+            completion();
+        }
     });
 }
 
