@@ -161,41 +161,15 @@
 }
 %end
 
-%hook MPRemoteCommandTarget
-- (MPRemoteCommandHandlerStatus)invokeWithRemoteCommandEvent:(MPRemoteCommandEvent *)event {
-    id selfObj = (id)self;
-    id target = nil;
-    if ([selfObj respondsToSelector:@selector(target)]) {
-        target = [selfObj performSelector:@selector(target)];
-    } else if (class_getInstanceVariable([selfObj class], "_target") != NULL) {
-        target = [selfObj valueForKey:@"_target"];
-    }
-    
-    if (target && target != [%c(YTMOfflinePlayerManager) sharedManager]) {
-        if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) {
-            return MPRemoteCommandHandlerStatusNoSuchContent;
-        }
-    }
-    return %orig;
-}
-%end
-
-%hook MPRemoteCommand
-- (id)addTargetWithHandler:(MPRemoteCommandHandlerStatus (^)(MPRemoteCommandEvent *event))handler {
-    if (handler) {
-        MPRemoteCommandHandlerStatus (^guardedHandler)(MPRemoteCommandEvent *) = ^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
-            if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) {
-                return MPRemoteCommandHandlerStatusNoSuchContent;
-            }
-            return handler(event);
-        };
-        return %orig(guardedHandler);
-    }
-    return %orig(handler);
-}
-%end
-
 %hook YTQueueController
+- (void)play {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)playVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
 - (void)nextVideo {
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
     %orig;
@@ -223,6 +197,14 @@
 %end
 
 %hook YTLocalPlaybackController
+- (void)play {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)playVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
 - (void)nextVideo {
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
     %orig;
@@ -242,6 +224,14 @@
 %end
 
 %hook YTSingleVideoController
+- (void)play {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)playVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
 - (void)nextVideo {
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
     %orig;
@@ -253,6 +243,14 @@
 %end
 
 %hook YTPlayerViewController
+- (void)play {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
+- (void)playVideo {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
+    %orig;
+}
 - (void)nextVideo {
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return;
     %orig;
@@ -272,6 +270,14 @@
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
     return %orig;
 }
+- (id)handlePlayCommand:(id)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
+    return %orig;
+}
+- (id)handlePauseCommand:(id)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
+    return %orig;
+}
 %end
 
 %hook YTSystemMediaControlHandler
@@ -280,6 +286,14 @@
     return %orig;
 }
 - (id)handlePreviousTrackCommand:(id)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
+    return %orig;
+}
+- (id)handlePlayCommand:(id)event {
+    if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
+    return %orig;
+}
+- (id)handlePauseCommand:(id)event {
     if ([[%c(YTMOfflinePlayerManager) sharedManager] isOfflinePlayerActive]) return nil;
     return %orig;
 }
