@@ -168,8 +168,13 @@
         NSArray *playlistTracks = [YTMDownloadMetadata tracksForPlaylist:self.selectedPlaylistFilter];
         NSMutableArray *matched = [NSMutableArray array];
         for (NSString *track in playlistTracks) {
-            if ([filtered containsObject:track]) {
-                [matched addObject:track];
+            for (NSString *file in filtered) {
+                if ([file localizedCaseInsensitiveCompare:track] == NSOrderedSame || [file.lastPathComponent localizedCaseInsensitiveCompare:track.lastPathComponent] == NSOrderedSame) {
+                    if (![matched containsObject:file]) {
+                        [matched addObject:file];
+                    }
+                    break;
+                }
             }
         }
         self.audioFiles = matched;

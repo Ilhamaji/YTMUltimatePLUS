@@ -167,48 +167,60 @@ static CGFloat getTotalMediaTimeFromHierarchy(UIView *sourceView) {
     return 0;
 }
 
+static NSString *sanitizeFileNameString(NSString *input) {
+    if (!input) return @"";
+    NSCharacterSet *illegal = [NSCharacterSet characterSetWithCharactersInString:@"/\\:?*\"<>|"];
+    NSString *clean = [[input componentsSeparatedByCharactersInSet:illegal] componentsJoinedByString:@""];
+    clean = [clean stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    return clean.length > 0 ? clean : @"Track";
+}
+
 static NSDictionary *fetchPlayerResponseForVideoId(NSString *videoId) {
     if (!videoId || videoId.length == 0) return nil;
     
-    NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/player"];
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
-    request.HTTPMethod = @"POST";
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
-    [request setValue:@"Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36" forHTTPHeaderField:@"User-Agent"];
+    NSArray *clients = @[
+        @{@"clientName": @"ANDROID", @"clientVersion": @"19.05.36", @"androidSdkVersion": @30},
+        @{@"clientName": @"IOS", @"clientVersion": @"19.05.36", @"osVersion": @"16.5"},
+        @{@"clientName": @"WEB_REMIX", @"clientVersion": @"1.20231214.00.00"}
+    ];
     
-    NSDictionary *bodyDict = @{
-        @"context": @{
-            @"client": @{
-                @"clientName": @"ANDROID",
-                @"clientVersion": @"19.05.36",
-                @"androidSdkVersion": @30,
-                @"hl": @"en",
-                @"gl": @"US"
+    for (NSDictionary *clientInfo in clients) {
+        NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/player"];
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        request.HTTPMethod = @"POST";
+        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
+        [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15" forHTTPHeaderField:@"User-Agent"];
+        
+        NSDictionary *bodyDict = @{
+            @"context": @{
+                @"client": clientInfo
+            },
+            @"videoId": videoId
+        };
+        
+        NSData *bodyData = [NSJSONSerialization dataWithJSONObject:bodyDict options:0 error:nil];
+        request.HTTPBody = bodyData;
+        
+        dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+        __block NSDictionary *resultDict = nil;
+        
+        NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            if (!error && data) {
+                NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+                if ([json isKindOfClass:[NSDictionary class]] && json[@"streamingData"]) {
+                    resultDict = json;
+                }
             }
-        },
-        @"videoId": videoId
-    };
+            dispatch_semaphore_signal(sema);
+        }];
+        [task resume];
+        dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8 * NSEC_PER_SEC)));
+        
+        if (resultDict) return resultDict;
+    }
     
-    NSData *bodyData = [NSJSONSerialization dataWithJSONObject:bodyDict options:0 error:nil];
-    request.HTTPBody = bodyData;
-    
-    dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-    __block NSDictionary *resultDict = nil;
-    
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (!error && data) {
-            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            if ([json isKindOfClass:[NSDictionary class]]) {
-                resultDict = json;
-            }
-        }
-        dispatch_semaphore_signal(sema);
-    }];
-    [task resume];
-    dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)));
-    
-    return resultDict;
+    return nil;
 }
 
 static NSString *extractURLFromFormatDict(NSDictionary *fmt) {
@@ -648,8 +660,8 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         NSString *rawTitle = videoDetails[@"title"] ?: suggestedTitle ?: @"Downloaded Track";
         NSString *rawAuthor = videoDetails[@"author"] ?: @"YouTube Music";
         
-        NSString *title = [rawTitle stringByReplacingOccurrencesOfString:@"/" withString:@""];
-        NSString *author = [rawAuthor stringByReplacingOccurrencesOfString:@"/" withString:@""];
+        NSString *title = sanitizeFileNameString(rawTitle);
+        NSString *author = sanitizeFileNameString(rawAuthor);
         CGFloat duration = [videoDetails[@"lengthSeconds"] doubleValue];
         
         NSString *thumbnailURLStr = nil;
