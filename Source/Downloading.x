@@ -257,8 +257,11 @@ static NSString *extractAudioURLFromPlayerResponse(NSDictionary *json) {
     
     NSArray *adaptiveFormats = streamingData[@"adaptiveFormats"];
     if ([adaptiveFormats isKindOfClass:[NSArray class]]) {
-        NSString *bestAudioURL = nil;
-        NSInteger highestBitrate = 0;
+        NSString *bestAACURL = nil;
+        NSInteger highestAACBitrate = 0;
+        
+        NSString *bestAnyAudioURL = nil;
+        NSInteger highestAnyBitrate = 0;
         
         for (NSDictionary *fmt in adaptiveFormats) {
             if (![fmt isKindOfClass:[NSDictionary class]]) continue;
@@ -267,14 +270,23 @@ static NSString *extractAudioURLFromPlayerResponse(NSDictionary *json) {
             
             if ([mime isKindOfClass:[NSString class]] && [mime containsString:@"audio/"] && [urlStr isKindOfClass:[NSString class]] && urlStr.length > 0) {
                 NSInteger bitrate = [fmt[@"bitrate"] integerValue];
-                if (bitrate > highestBitrate || !bestAudioURL) {
-                    highestBitrate = bitrate;
-                    bestAudioURL = urlStr;
+                
+                if (bitrate > highestAnyBitrate || !bestAnyAudioURL) {
+                    highestAnyBitrate = bitrate;
+                    bestAnyAudioURL = urlStr;
+                }
+                
+                if ([mime containsString:@"mp4"] || [mime containsString:@"m4a"] || [mime containsString:@"aac"]) {
+                    if (bitrate > highestAACBitrate || !bestAACURL) {
+                        highestAACBitrate = bitrate;
+                        bestAACURL = urlStr;
+                    }
                 }
             }
         }
         
-        if (bestAudioURL) return bestAudioURL;
+        if (bestAACURL) return bestAACURL;
+        if (bestAnyAudioURL) return bestAnyAudioURL;
     }
     
     NSArray *formats = streamingData[@"formats"];

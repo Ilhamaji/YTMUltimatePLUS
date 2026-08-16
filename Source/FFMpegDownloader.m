@@ -51,12 +51,19 @@
     [MobileFFmpegConfig setLogDelegate:self];
     
     int returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i \"%@\" -y -c copy \"%@\"", audioURL, destinationURL.path]];
+    if (returnCode != RETURN_CODE_SUCCESS) {
+        returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i \"%@\" -y -c:a aac -b:a 192k \"%@\"", audioURL, destinationURL.path]];
+    }
 
     __block BOOL success = NO;
     dispatch_sync(dispatch_get_main_queue(), ^{
         if (returnCode == RETURN_CODE_SUCCESS) {
             [self.hud hideAnimated:YES];
+            [[NSFileManager defaultManager] removeItemAtURL:outputURL error:nil];
             BOOL isMoved = [[NSFileManager defaultManager] moveItemAtURL:destinationURL toURL:outputURL error:nil];
+            if (!isMoved) {
+                isMoved = [[NSFileManager defaultManager] copyItemAtURL:destinationURL toURL:outputURL error:nil];
+            }
 
             if (isMoved) {
                 success = YES;
