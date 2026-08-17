@@ -353,7 +353,7 @@ static void extractVideoIdAndTitleFromObject(id obj, NSString **outVideoId, NSSt
         if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) vId = v;
     }
     
-    for (NSString *epKey in @[@"watchEndpoint", @"navigationEndpoint", @"endpoint", @"command", @"serviceEndpoint"]) {
+    for (NSString *epKey in @[@"watchEndpoint", @"navigationEndpoint", @"endpoint", @"command", @"serviceEndpoint", @"playNavigationEndpoint"]) {
         if (!vId && [obj respondsToSelector:NSSelectorFromString(epKey)]) {
             id ep = callObjectSelector(obj, NSSelectorFromString(epKey));
             if (ep) {
@@ -372,7 +372,17 @@ static void extractVideoIdAndTitleFromObject(id obj, NSString **outVideoId, NSSt
         }
     }
     
-    for (NSString *renKey in @[@"playlistPanelVideoRenderer", @"musicResponsiveListItemRenderer", @"musicTwoRowItemRenderer", @"compactVideoRenderer"]) {
+    if (!vId && [obj respondsToSelector:NSSelectorFromString(@"flexColumns")]) {
+        id cols = callObjectSelector(obj, NSSelectorFromString(@"flexColumns"));
+        if ([cols isKindOfClass:[NSArray class]]) {
+            for (id col in cols) {
+                extractVideoIdAndTitleFromObject(col, &vId, &tTitle);
+                if (vId) break;
+            }
+        }
+    }
+    
+    for (NSString *renKey in @[@"playlistPanelVideoRenderer", @"musicResponsiveListItemRenderer", @"musicTwoRowItemRenderer", @"compactVideoRenderer", @"musicResponsiveListItemFlexColumnRenderer"]) {
         if (!vId && [obj respondsToSelector:NSSelectorFromString(renKey)]) {
             id ren = callObjectSelector(obj, NSSelectorFromString(renKey));
             if (ren) {
@@ -396,6 +406,9 @@ static void extractVideoIdAndTitleFromObject(id obj, NSString **outVideoId, NSSt
                             if ([txt isKindOfClass:[NSString class]]) tTitle = txt;
                         }
                     }
+                } else if ([tObj respondsToSelector:NSSelectorFromString(@"simpleText")]) {
+                    id txt = callObjectSelector(tObj, NSSelectorFromString(@"simpleText"));
+                    if ([txt isKindOfClass:[NSString class]]) tTitle = txt;
                 }
             }
         }
@@ -600,7 +613,22 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     ELMNodeController *node = [self valueForKey:@"_controller"];
     UIGestureRecognizer *tapRecognizer = [self valueForKey:@"_tapRecognizer"];
 
-    BOOL isDownloadNode = [node.key containsString:@"download"] || [node.key containsString:@"offline"];
+    BOOL isDownloadNode = NO;
+    if (node && node.key) {
+        NSString *k = [node.key lowercaseString];
+        if ([k containsString:@"download"] || [k containsString:@"offline"] || [k containsString:@"save"]) {
+            isDownloadNode = YES;
+        }
+    }
+    if (!isDownloadNode) {
+        for (NSString *selName in @[@"offlinePlaylistEndpoint", @"offlineEndpoint", @"downloadCommand"]) {
+            if ([self respondsToSelector:NSSelectorFromString(selName)] || (node && [node respondsToSelector:NSSelectorFromString(selName)])) {
+                isDownloadNode = YES;
+                break;
+            }
+        }
+    }
+    
     if (!isDownloadNode) {
         return %orig;
     }
@@ -611,7 +639,20 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         presentingVC = [UIApplication sharedApplication].keyWindow.rootViewController;
     }
 
-    BOOL isPlaylistDownload = [node.key containsString:@"playlist"] || [node.key containsString:@"header"];
+    BOOL isPlaylistDownload = NO;
+    if (node && node.key) {
+        NSString *k = [node.key lowercaseString];
+        if ([k containsString:@"playlist"] || [k containsString:@"header"] || [k containsString:@"browse"] || [k containsString:@"shelf"]) {
+            isPlaylistDownload = YES;
+        }
+    }
+    if (!isPlaylistDownload && presentingVC) {
+        NSString *vcCls = NSStringFromClass([presentingVC class]);
+        if ([vcCls containsString:@"Browse"] || [vcCls containsString:@"Playlist"] || [vcCls containsString:@"Section"]) {
+            isPlaylistDownload = YES;
+        }
+    }
+    
     if (isPlaylistDownload) {
         [self downloadPlaylistTracks:(id)tapView];
         return;
