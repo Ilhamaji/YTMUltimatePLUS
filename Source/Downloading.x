@@ -920,6 +920,10 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         });
         
         NSUInteger count = 0;
+        __block NSUInteger successCount = 0;
+        __block NSUInteger failCount = 0;
+        __block NSString *lastError = nil;
+        
         for (NSDictionary *dict in tracks) {
             count++;
             NSString *vId = dict[@"videoId"];
@@ -931,7 +935,13 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
             });
             
             dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-            [self downloadTrackWithVideoId:vId title:tTitle playlistName:playlistName completion:^{
+            [self downloadTrackWithVideoId:vId title:tTitle playlistName:playlistName completion:^(BOOL success, NSString *errorReason) {
+                if (success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                    lastError = errorReason;
+                }
                 dispatch_semaphore_signal(sema);
             }];
             dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
@@ -942,7 +952,11 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
             
             YTAlertView *alertView = [%c(YTAlertView) infoDialog];
             alertView.title = @"Playlist Download Complete";
-            alertView.subtitle = [NSString stringWithFormat:@"Downloaded %lu tracks to '%@'", (unsigned long)tracks.count, playlistName];
+            if (failCount == 0) {
+                alertView.subtitle = [NSString stringWithFormat:@"Successfully downloaded %lu tracks to '%@'", (unsigned long)successCount, playlistName];
+            } else {
+                alertView.subtitle = [NSString stringWithFormat:@"Downloaded %lu tracks. %lu failed. Last error: %@", (unsigned long)successCount, (unsigned long)failCount, lastError ?: @"Unknown"];
+            }
             [alertView show];
             
             [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadDataNotification" object:nil];
@@ -951,13 +965,22 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
 }
 
 %new
-- (void)downloadTrackWithVideoId:(NSString *)videoId title:(NSString *)suggestedTitle playlistName:(NSString *)playlistName completion:(void (^)(void))completion {
+- (void)downloadTrackWithVideoId:(NSString *)videoId title:(NSString *)suggestedTitle playlistName:(NSString *)playlistName completion:(void (^)(BOOL, NSString *))completion {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         NSDictionary *json = fetchPlayerResponseForVideoId(videoId);
         
         NSString *audioURL = extractAudioURLFromPlayerResponse(json);
+        
+        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+        NSURL *folderURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
+        [[NSFileManager defaultManager] createDirectoryAtURL:folderURL withIntermediateDirectories:YES attributes:nil error:nil];
+        
         if (!audioURL || audioURL.length == 0) {
-            if (completion) completion();
+            NSString *logMsg = [NSString stringWithFormat:@"Failed for video %@: audioURL is nil. JSON: %@\n", videoId, json];
+            NSURL *logURL = [folderURL URLByAppendingPathComponent:@"error_log.txt"];
+            [logMsg writeToURL:logURL atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            
+            if (completion) completion(NO, @"Audio URL not found (possibly region blocked or requires signature)");
             return;
         }
         
@@ -977,10 +1000,6 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         NSString *mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
         NSString *fileName = [NSString stringWithFormat:@"%@.m4a", mediaName];
         
-        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-        NSURL *folderURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
-        [[NSFileManager defaultManager] createDirectoryAtURL:folderURL withIntermediateDirectories:YES attributes:nil error:nil];
-        
         NSURL *tempURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.m4a", videoId]];
         NSURL *outputURL = [folderURL URLByAppendingPathComponent:fileName];
         
@@ -994,14 +1013,19 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         }
         
         if (!downloadURL || downloadURL.length == 0) {
-            if (completion) completion();
+            NSString *logMsg = [NSString stringWithFormat:@"Failed for video %@: Manifest returned nil URL.\n", videoId];
+            NSURL *logURL = [folderURL URLByAppendingPathComponent:@"error_log.txt"];
+            [logMsg writeToURL:logURL atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            if (completion) completion(NO, @"Invalid manifest URL");
             return;
         }
         
         // Run FFMpeg: try copy first, then re-encode
-        int returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i \"%@\" -y -c copy \"%@\"", downloadURL, tempURL.path]];
+        NSArray *args1 = @[@"-i", downloadURL, @"-y", @"-c", @"copy", tempURL.path];
+        int returnCode = [MobileFFmpeg executeWithArguments:args1];
         if (returnCode != RETURN_CODE_SUCCESS) {
-            returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i \"%@\" -y -c:a aac -b:a 192k \"%@\"", downloadURL, tempURL.path]];
+            NSArray *args2 = @[@"-i", downloadURL, @"-y", @"-c:a", @"aac", @"-b:a", @"192k", tempURL.path];
+            returnCode = [MobileFFmpeg executeWithArguments:args2];
         }
         
         BOOL success = NO;
@@ -1017,6 +1041,10 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
                 [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
             }
         } else {
+            NSString *logMsg = [NSString stringWithFormat:@"Failed FFMpeg for video %@: rc=%d output=%@\n", videoId, returnCode, [MobileFFmpegConfig getLastCommandOutput]];
+            NSURL *logURL = [folderURL URLByAppendingPathComponent:@"error_log.txt"];
+            [logMsg writeToURL:logURL atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            
             [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
         }
         
@@ -1041,10 +1069,9 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadDataNotification" object:nil];
             });
-        }
-        
-        if (completion) {
-            completion();
+            if (completion) completion(YES, nil);
+        } else {
+            if (completion) completion(NO, @"FFMpeg failed or file could not be saved");
         }
     });
 }
