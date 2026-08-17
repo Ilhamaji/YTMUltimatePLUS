@@ -531,22 +531,65 @@ static UIViewController *findPlaylistPageViewController(UIView *sourceView) {
     if (sourceView && [sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
         vc = [sourceView _viewControllerForAncestor];
     }
+    if (!vc) {
+        UIWindow *window = [UIApplication sharedApplication].keyWindow;
+        vc = window.rootViewController;
+    }
     
     UIViewController *curr = vc;
-    UIViewController *playlistPageVC = vc;
+    UIViewController *playlistPageVC = nil;
     
     while (curr) {
         NSString *clsName = NSStringFromClass([curr class]);
         
-        if ([clsName containsString:@"AppViewController"] || [clsName containsString:@"Root"]) {
+        if ([clsName containsString:@"Browse"] || [clsName containsString:@"Playlist"] || [clsName containsString:@"SectionList"]) {
+            playlistPageVC = curr;
             break;
         }
         
-        if ([clsName containsString:@"Browse"] || [clsName containsString:@"Playlist"] || [clsName containsString:@"SectionList"]) {
-            playlistPageVC = curr;
+        if (curr.parentViewController) {
+            curr = curr.parentViewController;
+        } else if (curr.presentingViewController) {
+            curr = curr.presentingViewController;
+        } else {
+            break;
         }
-        
-        curr = curr.parentViewController;
+    }
+    
+    if (!playlistPageVC) {
+        UIWindow *window = [UIApplication sharedApplication].keyWindow;
+        UIViewController *top = window.rootViewController;
+        while (top) {
+            NSString *clsName = NSStringFromClass([top class]);
+            if ([clsName containsString:@"Browse"] || [clsName containsString:@"Playlist"] || [clsName containsString:@"SectionList"]) {
+                playlistPageVC = top;
+                break;
+            }
+            if (top.presentedViewController && ![top.presentedViewController isKindOfClass:[%c(YTMActionSheetController) class]]) {
+                top = top.presentedViewController;
+            } else if ([top isKindOfClass:[UINavigationController class]]) {
+                top = [(UINavigationController *)top topViewController];
+            } else if ([top isKindOfClass:[UITabBarController class]]) {
+                top = [(UITabBarController *)top selectedViewController];
+            } else if (top.childViewControllers.count > 0) {
+                UIViewController *foundChild = nil;
+                for (UIViewController *child in top.childViewControllers) {
+                    if (gActivePlayerVC && child == gActivePlayerVC) continue;
+                    NSString *cCls = NSStringFromClass([child class]);
+                    if ([cCls containsString:@"Browse"] || [cCls containsString:@"Playlist"] || [cCls containsString:@"SectionList"]) {
+                        foundChild = child;
+                        break;
+                    }
+                }
+                if (foundChild) {
+                    playlistPageVC = foundChild;
+                    break;
+                }
+                top = top.childViewControllers.firstObject;
+            } else {
+                break;
+            }
+        }
     }
     
     return playlistPageVC ?: vc;
