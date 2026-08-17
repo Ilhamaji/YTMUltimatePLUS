@@ -967,7 +967,6 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         
         NSString *title = sanitizeFileNameString(rawTitle);
         NSString *author = sanitizeFileNameString(rawAuthor);
-        CGFloat duration = [videoDetails[@"lengthSeconds"] doubleValue];
         
         NSString *thumbnailURLStr = nil;
         NSArray *thumbnails = videoDetails[@"thumbnail"][@"thumbnails"];
@@ -975,39 +974,73 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
             thumbnailURLStr = [thumbnails lastObject][@"url"];
         }
         
-        FFMpegDownloader *ffmpeg = [[FFMpegDownloader alloc] init];
-        ffmpeg.tempName = videoId;
-        ffmpeg.mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
-        ffmpeg.videoId = videoId;
-        ffmpeg.trackTitle = title;
-        ffmpeg.trackAuthor = author;
-        ffmpeg.duration = round(duration);
+        NSString *mediaName = [NSString stringWithFormat:@"%@ - %@", author, title];
+        NSString *fileName = [NSString stringWithFormat:@"%@.m4a", mediaName];
         
-        NSString *downloadURL = nil;
+        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
+        NSURL *folderURL = [documentsURL URLByAppendingPathComponent:@"YTMusicUltimate"];
+        [[NSFileManager defaultManager] createDirectoryAtURL:folderURL withIntermediateDirectories:YES attributes:nil error:nil];
+        
+        NSURL *tempURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.m4a", videoId]];
+        NSURL *outputURL = [folderURL URLByAppendingPathComponent:fileName];
+        
+        // Clean up any existing temp file
+        [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
+        
+        // Handle HLS manifest URL
+        NSString *downloadURL = audioURL;
         if ([audioURL containsString:@"m3u8"] || [audioURL containsString:@"manifest"]) {
             downloadURL = [self getURLFromManifest:[NSURL URLWithString:audioURL]];
-        } else {
-            downloadURL = audioURL;
         }
         
-        if (downloadURL.length > 0) {
-            BOOL downloaded = [ffmpeg downloadAudioSynchronous:downloadURL];
+        if (!downloadURL || downloadURL.length == 0) {
+            if (completion) completion();
+            return;
+        }
+        
+        // Run FFMpeg: try copy first, then re-encode
+        int returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i \"%@\" -y -c copy \"%@\"", downloadURL, tempURL.path]];
+        if (returnCode != RETURN_CODE_SUCCESS) {
+            returnCode = [MobileFFmpeg execute:[NSString stringWithFormat:@"-i \"%@\" -y -c:a aac -b:a 192k \"%@\"", downloadURL, tempURL.path]];
+        }
+        
+        BOOL success = NO;
+        if (returnCode == RETURN_CODE_SUCCESS) {
+            // Move temp to final destination
+            [[NSFileManager defaultManager] removeItemAtURL:outputURL error:nil];
+            NSError *moveError = nil;
+            success = [[NSFileManager defaultManager] moveItemAtURL:tempURL toURL:outputURL error:&moveError];
+            if (!success) {
+                // Try copy as fallback
+                NSError *copyError = nil;
+                success = [[NSFileManager defaultManager] copyItemAtURL:tempURL toURL:outputURL error:&copyError];
+                [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
+            }
+        } else {
+            [[NSFileManager defaultManager] removeItemAtURL:tempURL error:nil];
+        }
+        
+        if (success) {
+            // Save metadata
+            [YTMDownloadMetadata saveMetadataForFileName:fileName videoId:videoId title:title author:author];
             
-            if (downloaded) {
-                if (thumbnailURLStr.length > 0) {
-                    NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnailURLStr]];
-                    if (imageData) {
-                        NSURL *documentsURL = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
-                        NSURL *coverURL = [documentsURL URLByAppendingPathComponent:[NSString stringWithFormat:@"YTMusicUltimate/%@ - %@.png", author, title]];
-                        [imageData writeToURL:coverURL atomically:YES];
-                    }
-                }
-                
-                NSString *fileName = [NSString stringWithFormat:@"%@ - %@.m4a", author, title];
-                if (playlistName.length > 0) {
-                    [YTMDownloadMetadata addTrack:fileName toPlaylist:playlistName];
+            // Add to playlist
+            if (playlistName.length > 0) {
+                [YTMDownloadMetadata addTrack:fileName toPlaylist:playlistName];
+            }
+            
+            // Download cover image
+            if (thumbnailURLStr.length > 0) {
+                NSData *imageData = [NSData dataWithContentsOfURL:[NSURL URLWithString:thumbnailURLStr]];
+                if (imageData) {
+                    NSURL *coverURL = [folderURL URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.png", mediaName]];
+                    [imageData writeToURL:coverURL atomically:YES];
                 }
             }
+            
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [[NSNotificationCenter defaultCenter] postNotificationName:@"ReloadDataNotification" object:nil];
+            });
         }
         
         if (completion) {
