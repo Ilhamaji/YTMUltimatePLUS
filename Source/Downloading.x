@@ -513,87 +513,53 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     }
 }
 
-static id findPlaylistShelfObject(id obj, NSMutableSet *visited) {
-    if (!obj) return nil;
-    NSValue *ptrVal = [NSValue valueWithNonretainedObject:obj];
-    if ([visited containsObject:ptrVal]) return nil;
-    [visited addObject:ptrVal];
+static UIViewController *findActiveVisibleViewController(UIViewController *rootVC) {
+    if (!rootVC) rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
     
-    if (visited.count > 500) return nil;
-    
-    NSString *clsName = NSStringFromClass([obj class]);
-    if ([clsName containsString:@"PlaylistShelf"] || [clsName containsString:@"PlaylistVideoList"] || [clsName containsString:@"PlaylistPanel"]) {
-        return obj;
-    }
-    
-    for (NSString *selName in @[@"musicPlaylistShelfRenderer", @"playlistVideoListRenderer", @"playlistPanelRenderer", @"playlistPanel"]) {
-        SEL sel = NSSelectorFromString(selName);
-        if ([obj respondsToSelector:sel]) {
-            id child = callObjectSelector(obj, sel);
-            if (child) return child;
-        }
-    }
-    
-    for (NSString *selName in @[@"sectionListRenderer", @"sections", @"contents"]) {
-        SEL sel = NSSelectorFromString(selName);
-        if ([obj respondsToSelector:sel]) {
-            id child = callObjectSelector(obj, sel);
-            if ([child isKindOfClass:[NSArray class]] && [(NSArray *)child count] > 0) {
-                return ((NSArray *)child).firstObject;
-            } else if (child) {
-                if ([child respondsToSelector:NSSelectorFromString(@"contents")]) {
-                    id secContents = callObjectSelector(child, NSSelectorFromString(@"contents"));
-                    if ([secContents isKindOfClass:[NSArray class]] && [(NSArray *)secContents count] > 0) {
-                        return ((NSArray *)secContents).firstObject;
-                    }
+    UIViewController *curr = rootVC;
+    while (curr) {
+        if (curr.presentedViewController) {
+            curr = curr.presentedViewController;
+        } else if ([curr isKindOfClass:[UINavigationController class]]) {
+            curr = [(UINavigationController *)curr topViewController];
+        } else if ([curr isKindOfClass:[UITabBarController class]]) {
+            curr = [(UITabBarController *)curr selectedViewController];
+        } else if (curr.childViewControllers.count > 0) {
+            UIViewController *lastVisible = nil;
+            for (UIViewController *child in curr.childViewControllers) {
+                if (gActivePlayerVC && child == gActivePlayerVC) continue;
+                if (child.isViewLoaded && child.view.window != nil && !child.view.hidden && child.view.alpha > 0.01) {
+                    lastVisible = child;
                 }
             }
+            if (lastVisible && lastVisible != curr) {
+                curr = lastVisible;
+            } else {
+                break;
+            }
+        } else {
+            break;
         }
     }
-    
-    if ([obj isKindOfClass:[UIViewController class]]) {
-        UIViewController *vc = (UIViewController *)obj;
-        if (gActivePlayerVC && vc == gActivePlayerVC) return nil;
-        for (UIViewController *childVC in vc.childViewControllers) {
-            if (gActivePlayerVC && childVC == gActivePlayerVC) continue;
-            id found = findPlaylistShelfObject(childVC, visited);
-            if (found) return found;
-        }
-    }
-    
-    return nil;
+    return curr;
 }
 
 static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
     NSMutableSet *visited = [NSMutableSet set];
     
-    if (sourceView) {
-        if ([sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
-            UIViewController *anc = [sourceView _viewControllerForAncestor];
-            if (anc) {
-                id playlistShelf = findPlaylistShelfObject(anc, [NSMutableSet set]);
-                if (playlistShelf) {
-                    scanObjectForTracks(playlistShelf, tracks, visited);
-                } else {
-                    scanObjectForTracks(anc, tracks, visited);
-                }
-            }
-        }
-        if (tracks.count == 0) {
-            scanObjectForTracks(sourceView, tracks, visited);
-        }
+    UIViewController *activeVC = nil;
+    if (sourceView && [sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
+        activeVC = [sourceView _viewControllerForAncestor];
+    }
+    activeVC = findActiveVisibleViewController(activeVC);
+    
+    if (activeVC) {
+        scanObjectForTracks(activeVC, tracks, visited);
     }
     
-    if (tracks.count == 0) {
-        UIWindow *window = [UIApplication sharedApplication].keyWindow;
-        if (window && window.rootViewController) {
-            UIViewController *topVC = window.rootViewController;
-            while (topVC.presentedViewController) {
-                topVC = topVC.presentedViewController;
-            }
-            scanObjectForTracks(topVC, tracks, visited);
-        }
+    if (tracks.count == 0 && sourceView) {
+        scanObjectForTracks(sourceView, tracks, visited);
     }
     
     return tracks;
