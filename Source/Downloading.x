@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import <CommonCrypto/CommonDigest.h>
 #import "FFMpegDownloader.h"
 #import "Utils/YTMDownloadMetadata.h"
 #import "Headers/YTUIResources.h"
@@ -175,6 +176,26 @@ static NSString *sanitizeFileNameString(NSString *input) {
     return clean.length > 0 ? clean : @"Track";
 }
 
+static NSString *generateSAPISIDHASH(NSString *sapisid, NSString *origin) {
+    if (!sapisid || sapisid.length == 0) return nil;
+    
+    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+    NSString *timestampStr = [NSString stringWithFormat:@"%lld", (long long)timeStamp];
+    
+    NSString *inputStr = [NSString stringWithFormat:@"%@ %@ %@", timestampStr, sapisid, origin];
+    
+    const char *cstr = [inputStr UTF8String];
+    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
+    CC_SHA1(cstr, (CC_LONG)strlen(cstr), digest);
+    
+    NSMutableString *sha1Str = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) {
+        [sha1Str appendFormat:@"%02x", digest[i]];
+    }
+    
+    return [NSString stringWithFormat:@"SAPISIDHASH %@_%@", timestampStr, sha1Str];
+}
+
 static NSDictionary *fetchPlayerResponseForVideoId(NSString *videoId) {
     if (!videoId || videoId.length == 0) return nil;
     
@@ -184,13 +205,29 @@ static NSDictionary *fetchPlayerResponseForVideoId(NSString *videoId) {
         @{@"clientName": @"WEB_REMIX", @"clientVersion": @"1.20231214.00.00"}
     ];
     
+    NSString *sapisid = nil;
+    for (NSHTTPCookie *cookie in [[NSHTTPCookieStorage sharedHTTPCookieStorage] cookies]) {
+        if ([cookie.name isEqualToString:@"SAPISID"]) {
+            sapisid = cookie.value;
+            break;
+        }
+    }
+    
+    NSString *origin = @"https://music.youtube.com";
+    NSString *authHeader = generateSAPISIDHASH(sapisid, origin);
+    
     for (NSDictionary *clientInfo in clients) {
         NSURL *url = [NSURL URLWithString:@"https://www.youtube.com/youtubei/v1/player"];
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
         request.HTTPMethod = @"POST";
         [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-        [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
+        [request setValue:origin forHTTPHeaderField:@"Origin"];
+        [request setValue:origin forHTTPHeaderField:@"X-Origin"];
         [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15" forHTTPHeaderField:@"User-Agent"];
+        
+        if (authHeader) {
+            [request setValue:authHeader forHTTPHeaderField:@"Authorization"];
+        }
         
         NSDictionary *bodyDict = @{
             @"context": @{
