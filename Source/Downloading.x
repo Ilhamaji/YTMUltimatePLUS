@@ -526,88 +526,267 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     }
 }
 
-static UIViewController *findPlaylistPageViewController(UIView *sourceView) {
+static NSString *extractPlaylistIdFromHierarchy(UIView *sourceView) {
     UIViewController *vc = nil;
     if (sourceView && [sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
         vc = [sourceView _viewControllerForAncestor];
     }
-    if (!vc) {
-        UIWindow *window = [UIApplication sharedApplication].keyWindow;
-        vc = window.rootViewController;
+    
+    NSMutableSet *visited = [NSMutableSet set];
+    NSMutableArray *queue = [NSMutableArray array];
+    
+    if (vc) [queue addObject:vc];
+    
+    UIWindow *window = [UIApplication sharedApplication].keyWindow;
+    UIViewController *root = window.rootViewController;
+    if (root) {
+        UIViewController *top = root;
+        while (top.presentedViewController) {
+            top = top.presentedViewController;
+        }
+        if (top && ![queue containsObject:top]) [queue addObject:top];
+        if (root && ![queue containsObject:root]) [queue addObject:root];
     }
     
-    UIViewController *curr = vc;
-    UIViewController *playlistPageVC = nil;
-    
-    while (curr) {
-        NSString *clsName = NSStringFromClass([curr class]);
+    while (queue.count > 0) {
+        id obj = queue.firstObject;
+        [queue removeObjectAtIndex:0];
         
-        if ([clsName containsString:@"Browse"] || [clsName containsString:@"Playlist"] || [clsName containsString:@"SectionList"]) {
-            playlistPageVC = curr;
-            break;
-        }
+        if (!obj || [visited containsObject:[NSValue valueWithNonretainedObject:obj]]) continue;
+        [visited addObject:[NSValue valueWithNonretainedObject:obj]];
+        if (visited.count > 200) break;
         
-        if (curr.parentViewController) {
-            curr = curr.parentViewController;
-        } else if (curr.presentingViewController) {
-            curr = curr.presentingViewController;
-        } else {
-            break;
-        }
-    }
-    
-    if (!playlistPageVC) {
-        UIWindow *window = [UIApplication sharedApplication].keyWindow;
-        UIViewController *top = window.rootViewController;
-        while (top) {
-            NSString *clsName = NSStringFromClass([top class]);
-            if ([clsName containsString:@"Browse"] || [clsName containsString:@"Playlist"] || [clsName containsString:@"SectionList"]) {
-                playlistPageVC = top;
-                break;
+        for (NSString *selName in @[@"playlistId", @"browseId"]) {
+            if ([obj respondsToSelector:NSSelectorFromString(selName)]) {
+                NSString *pid = callObjectSelector(obj, NSSelectorFromString(selName));
+                if ([pid isKindOfClass:[NSString class]] && pid.length > 0) {
+                    if ([pid hasPrefix:@"VL"] || [pid hasPrefix:@"PL"] || [pid hasPrefix:@"OL"] || [pid hasPrefix:@"RD"] || [pid hasPrefix:@"UU"]) {
+                        return pid;
+                    }
+                }
             }
-            if (top.presentedViewController && ![top.presentedViewController isKindOfClass:[%c(YTMActionSheetController) class]]) {
-                top = top.presentedViewController;
-            } else if ([top isKindOfClass:[UINavigationController class]]) {
-                top = [(UINavigationController *)top topViewController];
-            } else if ([top isKindOfClass:[UITabBarController class]]) {
-                top = [(UITabBarController *)top selectedViewController];
-            } else if (top.childViewControllers.count > 0) {
-                UIViewController *foundChild = nil;
-                for (UIViewController *child in top.childViewControllers) {
-                    if (gActivePlayerVC && child == gActivePlayerVC) continue;
-                    NSString *cCls = NSStringFromClass([child class]);
-                    if ([cCls containsString:@"Browse"] || [cCls containsString:@"Playlist"] || [cCls containsString:@"SectionList"]) {
-                        foundChild = child;
+        }
+        
+        for (NSString *selName in @[@"browseEndpoint", @"endpoint", @"navigationEndpoint", @"command"]) {
+            if ([obj respondsToSelector:NSSelectorFromString(selName)]) {
+                id ep = callObjectSelector(obj, NSSelectorFromString(selName));
+                if (ep) [queue addObject:ep];
+            }
+        }
+        
+        if ([obj isKindOfClass:[UIViewController class]]) {
+            UIViewController *vcObj = (UIViewController *)obj;
+            if (gActivePlayerVC && vcObj == gActivePlayerVC) continue;
+            for (UIViewController *child in vcObj.childViewControllers) {
+                if (gActivePlayerVC && child == gActivePlayerVC) continue;
+                [queue addObject:child];
+            }
+            if (vcObj.parentViewController) [queue addObject:vcObj.parentViewController];
+            if (vcObj.presentingViewController) [queue addObject:vcObj.presentingViewController];
+        }
+    }
+    
+    return nil;
+}
+
+static void extractTracksFromJSONObject(id obj, NSMutableArray *tracks);
+
+static void extractTracksFromJSONObject(id obj, NSMutableArray *tracks) {
+    if (!obj) return;
+    
+    if ([obj isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)obj;
+        
+        // Check for musicResponsiveListItemRenderer which contains playlist tracks
+        NSDictionary *renderer = dict[@"musicResponsiveListItemRenderer"];
+        if ([renderer isKindOfClass:[NSDictionary class]]) {
+            NSString *videoId = nil;
+            NSString *title = nil;
+            
+            // Extract videoId from playlistItemData
+            NSDictionary *playlistItemData = renderer[@"playlistItemData"];
+            if ([playlistItemData isKindOfClass:[NSDictionary class]]) {
+                NSString *vid = playlistItemData[@"videoId"];
+                if ([vid isKindOfClass:[NSString class]] && vid.length > 0) {
+                    videoId = vid;
+                }
+            }
+            
+            // Extract videoId from overlay -> musicItemThumbnailOverlayRenderer -> content -> musicPlayButtonRenderer -> playNavigationEndpoint -> watchEndpoint
+            if (!videoId) {
+                NSDictionary *overlay = renderer[@"overlay"];
+                if ([overlay isKindOfClass:[NSDictionary class]]) {
+                    NSDictionary *thumbOverlay = overlay[@"musicItemThumbnailOverlayRenderer"];
+                    if ([thumbOverlay isKindOfClass:[NSDictionary class]]) {
+                        NSDictionary *content = thumbOverlay[@"content"];
+                        if ([content isKindOfClass:[NSDictionary class]]) {
+                            NSDictionary *playBtn = content[@"musicPlayButtonRenderer"];
+                            if ([playBtn isKindOfClass:[NSDictionary class]]) {
+                                NSDictionary *playNav = playBtn[@"playNavigationEndpoint"];
+                                if ([playNav isKindOfClass:[NSDictionary class]]) {
+                                    NSDictionary *watchEp = playNav[@"watchEndpoint"];
+                                    if ([watchEp isKindOfClass:[NSDictionary class]]) {
+                                        NSString *vid = watchEp[@"videoId"];
+                                        if ([vid isKindOfClass:[NSString class]] && vid.length > 0) {
+                                            videoId = vid;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Extract title from flexColumns[0]
+            NSArray *flexColumns = renderer[@"flexColumns"];
+            if ([flexColumns isKindOfClass:[NSArray class]] && flexColumns.count > 0) {
+                NSDictionary *firstCol = flexColumns[0];
+                if ([firstCol isKindOfClass:[NSDictionary class]]) {
+                    NSDictionary *flexColRenderer = firstCol[@"musicResponsiveListItemFlexColumnRenderer"];
+                    if ([flexColRenderer isKindOfClass:[NSDictionary class]]) {
+                        NSDictionary *text = flexColRenderer[@"text"];
+                        if ([text isKindOfClass:[NSDictionary class]]) {
+                            NSArray *runs = text[@"runs"];
+                            if ([runs isKindOfClass:[NSArray class]] && runs.count > 0) {
+                                NSDictionary *firstRun = runs[0];
+                                if ([firstRun isKindOfClass:[NSDictionary class]]) {
+                                    NSString *txt = firstRun[@"text"];
+                                    if ([txt isKindOfClass:[NSString class]] && txt.length > 0) {
+                                        title = txt;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (videoId) {
+                BOOL exists = NO;
+                for (NSDictionary *d in tracks) {
+                    if ([d[@"videoId"] isEqualToString:videoId]) {
+                        exists = YES;
                         break;
                     }
                 }
-                if (foundChild) {
-                    playlistPageVC = foundChild;
-                    break;
+                if (!exists) {
+                    [tracks addObject:@{
+                        @"videoId": videoId,
+                        @"title": title ?: @"Track"
+                    }];
                 }
-                top = top.childViewControllers.firstObject;
-            } else {
-                break;
             }
+            return;
+        }
+        
+        // Check for playlistPanelVideoRenderer (another format)
+        NSDictionary *panelRenderer = dict[@"playlistPanelVideoRenderer"];
+        if ([panelRenderer isKindOfClass:[NSDictionary class]]) {
+            NSString *videoId = panelRenderer[@"videoId"];
+            NSString *title = nil;
+            NSDictionary *titleObj = panelRenderer[@"title"];
+            if ([titleObj isKindOfClass:[NSDictionary class]]) {
+                NSArray *runs = titleObj[@"runs"];
+                if ([runs isKindOfClass:[NSArray class]] && runs.count > 0) {
+                    title = runs[0][@"text"];
+                }
+                if (!title) {
+                    title = titleObj[@"simpleText"];
+                }
+            }
+            if ([videoId isKindOfClass:[NSString class]] && videoId.length > 0) {
+                BOOL exists = NO;
+                for (NSDictionary *d in tracks) {
+                    if ([d[@"videoId"] isEqualToString:videoId]) {
+                        exists = YES;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    [tracks addObject:@{
+                        @"videoId": videoId,
+                        @"title": title ?: @"Track"
+                    }];
+                }
+            }
+            return;
+        }
+        
+        // Recurse into all values
+        for (id val in dict.allValues) {
+            extractTracksFromJSONObject(val, tracks);
+        }
+    } else if ([obj isKindOfClass:[NSArray class]]) {
+        for (id item in (NSArray *)obj) {
+            extractTracksFromJSONObject(item, tracks);
         }
     }
-    
-    return playlistPageVC ?: vc;
 }
 
 static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
+    NSString *playlistId = extractPlaylistIdFromHierarchy(sourceView);
+    
+    if (playlistId && playlistId.length > 0) {
+        NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
+        
+        // Call InnerTube browse API
+        NSString *browseId = playlistId;
+        if ([browseId hasPrefix:@"PL"] && ![browseId hasPrefix:@"VL"]) {
+            browseId = [NSString stringWithFormat:@"VL%@", browseId];
+        }
+        
+        NSURL *url = [NSURL URLWithString:@"https://music.youtube.com/youtubei/v1/browse"];
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+        request.HTTPMethod = @"POST";
+        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Origin"];
+        [request setValue:@"https://music.youtube.com" forHTTPHeaderField:@"Referer"];
+        [request setValue:@"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15" forHTTPHeaderField:@"User-Agent"];
+        
+        NSDictionary *bodyDict = @{
+            @"context": @{
+                @"client": @{
+                    @"clientName": @"WEB_REMIX",
+                    @"clientVersion": @"1.20231214.00.00",
+                    @"hl": @"en",
+                    @"gl": @"US"
+                }
+            },
+            @"browseId": browseId
+        };
+        
+        NSData *bodyData = [NSJSONSerialization dataWithJSONObject:bodyDict options:0 error:nil];
+        request.HTTPBody = bodyData;
+        
+        dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+        __block NSData *responseData = nil;
+        
+        NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            if (!error && data) {
+                responseData = data;
+            }
+            dispatch_semaphore_signal(sema);
+        }];
+        [task resume];
+        dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15 * NSEC_PER_SEC)));
+        
+        if (responseData) {
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:responseData options:0 error:nil];
+            if ([json isKindOfClass:[NSDictionary class]]) {
+                extractTracksFromJSONObject(json, tracks);
+            }
+        }
+        
+        if (tracks.count > 0) return tracks;
+    }
+    
+    // Fallback to UI scanning if API fails
     NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
     NSMutableSet *visited = [NSMutableSet set];
-    
-    UIViewController *playlistVC = findPlaylistPageViewController(sourceView);
-    if (playlistVC) {
-        scanObjectForTracks(playlistVC, tracks, visited);
-    }
-    
-    if (tracks.count == 0 && sourceView) {
+    if (sourceView) {
         scanObjectForTracks(sourceView, tracks, visited);
     }
-    
     return tracks;
 }
 
@@ -717,33 +896,38 @@ static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
         return;
     }
     
-    NSArray<NSDictionary *> *tracks = extractPlaylistTracks(sourceView);
     NSString *playlistName = getPlaylistTitleFromHierarchy(sourceView);
     
     MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:[UIApplication sharedApplication].keyWindow animated:YES];
     hud.mode = MBProgressHUDModeIndeterminate;
-    
-    if (tracks.count == 0) {
-        hud.label.text = @"Downloading Track...";
-        [self downloadAudio:sourceView];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [hud hideAnimated:YES];
-        });
-        return;
-    }
-    
-    [YTMDownloadMetadata createPlaylistNamed:playlistName];
-    hud.label.text = [NSString stringWithFormat:@"Downloading Playlist (%lu tracks)...", (unsigned long)tracks.count];
+    hud.label.text = @"Fetching playlist tracks...";
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSArray<NSDictionary *> *tracks = extractPlaylistTracks(sourceView);
+        
+        if (tracks.count == 0) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [hud hideAnimated:YES];
+                hud.label.text = @"Downloading Track...";
+                [self downloadAudio:sourceView];
+            });
+            return;
+        }
+        
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [YTMDownloadMetadata createPlaylistNamed:playlistName];
+            hud.label.text = [NSString stringWithFormat:@"Downloading Playlist (%lu tracks)...", (unsigned long)tracks.count];
+        });
+        
         NSUInteger count = 0;
         for (NSDictionary *dict in tracks) {
             count++;
             NSString *vId = dict[@"videoId"];
             NSString *tTitle = dict[@"title"];
             
+            NSUInteger currentCount = count;
             dispatch_async(dispatch_get_main_queue(), ^{
-                hud.label.text = [NSString stringWithFormat:@"Downloading (%lu/%lu): %@", (unsigned long)count, (unsigned long)tracks.count, tTitle ?: @"Track"];
+                hud.label.text = [NSString stringWithFormat:@"Downloading (%lu/%lu): %@", (unsigned long)currentCount, (unsigned long)tracks.count, tTitle ?: @"Track"];
             });
             
             dispatch_semaphore_t sema = dispatch_semaphore_create(0);
