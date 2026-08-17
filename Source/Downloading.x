@@ -472,6 +472,7 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
                 @"title": tTitle ?: @"Track"
             }];
         }
+        return;
     }
     
     if ([obj isKindOfClass:[UICollectionView class]]) {
