@@ -513,49 +513,39 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     }
 }
 
-static UIViewController *findActiveVisibleViewController(UIViewController *rootVC) {
-    if (!rootVC) rootVC = [UIApplication sharedApplication].keyWindow.rootViewController;
+static UIViewController *findPlaylistPageViewController(UIView *sourceView) {
+    UIViewController *vc = nil;
+    if (sourceView && [sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
+        vc = [sourceView _viewControllerForAncestor];
+    }
     
-    UIViewController *curr = rootVC;
+    UIViewController *curr = vc;
+    UIViewController *playlistPageVC = vc;
+    
     while (curr) {
-        if (curr.presentedViewController) {
-            curr = curr.presentedViewController;
-        } else if ([curr isKindOfClass:[UINavigationController class]]) {
-            curr = [(UINavigationController *)curr topViewController];
-        } else if ([curr isKindOfClass:[UITabBarController class]]) {
-            curr = [(UITabBarController *)curr selectedViewController];
-        } else if (curr.childViewControllers.count > 0) {
-            UIViewController *lastVisible = nil;
-            for (UIViewController *child in curr.childViewControllers) {
-                if (gActivePlayerVC && child == gActivePlayerVC) continue;
-                if (child.isViewLoaded && child.view.window != nil && !child.view.hidden && child.view.alpha > 0.01) {
-                    lastVisible = child;
-                }
-            }
-            if (lastVisible && lastVisible != curr) {
-                curr = lastVisible;
-            } else {
-                break;
-            }
-        } else {
+        NSString *clsName = NSStringFromClass([curr class]);
+        
+        if ([clsName containsString:@"AppViewController"] || [clsName containsString:@"Root"]) {
             break;
         }
+        
+        if ([clsName containsString:@"Browse"] || [clsName containsString:@"Playlist"] || [clsName containsString:@"SectionList"]) {
+            playlistPageVC = curr;
+        }
+        
+        curr = curr.parentViewController;
     }
-    return curr;
+    
+    return playlistPageVC ?: vc;
 }
 
 static NSArray<NSDictionary *> *extractPlaylistTracks(UIView *sourceView) {
     NSMutableArray<NSDictionary *> *tracks = [NSMutableArray array];
     NSMutableSet *visited = [NSMutableSet set];
     
-    UIViewController *activeVC = nil;
-    if (sourceView && [sourceView respondsToSelector:@selector(_viewControllerForAncestor)]) {
-        activeVC = [sourceView _viewControllerForAncestor];
-    }
-    activeVC = findActiveVisibleViewController(activeVC);
-    
-    if (activeVC) {
-        scanObjectForTracks(activeVC, tracks, visited);
+    UIViewController *playlistVC = findPlaylistPageViewController(sourceView);
+    if (playlistVC) {
+        scanObjectForTracks(playlistVC, tracks, visited);
     }
     
     if (tracks.count == 0 && sourceView) {
