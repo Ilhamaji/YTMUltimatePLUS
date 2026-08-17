@@ -306,7 +306,7 @@ static NSString *extractAudioURLFromPlayerResponse(NSDictionary *json) {
 @interface ELMTouchCommandPropertiesHandler : NSObject
 - (void)downloadAudio:(id)sourceView;
 - (void)downloadAudioInternal:(id)sourceView completion:(void (^)(void))completion;
-- (void)downloadTrackWithVideoId:(NSString *)videoId title:(NSString *)suggestedTitle playlistName:(NSString *)playlistName completion:(void (^)(void))completion;
+- (void)downloadTrackWithVideoId:(NSString *)videoId title:(NSString *)suggestedTitle playlistName:(NSString *)playlistName completion:(void (^)(BOOL, NSString *))completion;
 - (void)downloadCoverImage:(id)sourceView;
 - (void)downloadPlaylistTracks:(id)sourceView;
 - (NSString *)getURLFromManifest:(NSURL *)manifest;
