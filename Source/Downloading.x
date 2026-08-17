@@ -348,7 +348,15 @@ static void extractVideoIdAndTitleFromObject(id obj, NSString **outVideoId, NSSt
     NSString *vId = nil;
     NSString *tTitle = nil;
     
-    if ([obj respondsToSelector:NSSelectorFromString(@"videoId")]) {
+    if ([obj respondsToSelector:NSSelectorFromString(@"playlistItemData")]) {
+        id itemData = callObjectSelector(obj, NSSelectorFromString(@"playlistItemData"));
+        if (itemData && [itemData respondsToSelector:NSSelectorFromString(@"videoId")]) {
+            id v = callObjectSelector(itemData, NSSelectorFromString(@"videoId"));
+            if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) vId = v;
+        }
+    }
+    
+    if (!vId && [obj respondsToSelector:NSSelectorFromString(@"videoId")]) {
         id v = callObjectSelector(obj, NSSelectorFromString(@"videoId"));
         if ([v isKindOfClass:[NSString class]] && [(NSString *)v length] > 0) vId = v;
     }
@@ -424,7 +432,7 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     if ([visited containsObject:ptrVal]) return;
     [visited addObject:ptrVal];
     
-    if (visited.count > 2000) return;
+    if (visited.count > 3000) return;
     
     if (gActivePlayerVC && (obj == gActivePlayerVC || ([obj isKindOfClass:[UIView class]] && [(UIView *)obj isDescendantOfView:((UIViewController *)gActivePlayerVC).view]))) {
         return;
@@ -481,7 +489,11 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         @"renderer", @"playlistPanel", @"watchNextResponse", @"sectionListRenderer",
         @"playlistPanelRenderer", @"singleColumnWatchNextResults", @"results",
         @"playlist", @"playlistVideoListRenderer", @"playlistPanelVideoRenderer",
-        @"musicResponsiveListItemRenderer", @"content"
+        @"musicResponsiveListItemRenderer", @"content", @"response", @"browseResponse",
+        @"singleColumnBrowseResultsRenderer", @"tabs", @"tabRenderer", @"playlistItemData",
+        @"navigationEndpoint", @"watchEndpoint", @"menu", @"menuRenderer", @"flexColumns",
+        @"musicResponsiveListItemFlexColumnRenderer", @"text", @"runs", @"overlay",
+        @"musicItemThumbnailOverlayRenderer", @"playNavigationEndpoint", @"compactVideoRenderer"
     ];
     for (NSString *selName in selNames) {
         SEL sel = NSSelectorFromString(selName);
